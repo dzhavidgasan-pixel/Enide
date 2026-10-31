@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141416"/>
+      <stop offset="1" stop-color="#000000"/>
+    </linearGradient>
+    <radialGradient id="orb" cx="0.42" cy="0.38" r="0.62">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#ffffff"/>
+      <stop offset="0.75" stop-color="#e6e6ea"/>
+      <stop offset="1" stop-color="#b5b5bb"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="stem" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#8e8e96"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.08"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="188" fill="url(#bg)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="186.5" fill="none" stroke="url(#rim)" stroke-width="3"/>
+  <g fill="#ffffff">
+    <circle cx="246" cy="268" r="2.4" opacity="0.5"/><circle cx="772" cy="232" r="3" opacity="0.65"/><circle cx="824" cy="610" r="2" opacity="0.4"/>
+    <circle cx="214" cy="702" r="2.6" opacity="0.45"/><circle cx="690" cy="806" r="2" opacity="0.35"/><circle cx="330" cy="842" r="1.8" opacity="0.3"/><circle cx="604" cy="168" r="1.8" opacity="0.4"/>
+  </g>
+  <circle cx="512" cy="372" r="250" fill="url(#halo)"/>
+  <circle cx="512" cy="372" r="104" fill="url(#orb)"/>
+  <rect x="452" y="520" width="120" height="290" rx="22" fill="url(#stem)"/>
+</svg>

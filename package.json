@@ -1,0 +1,111 @@
+{
+  "name": "enide",
+  "productName": "Enide",
+  "version": "1.0.0",
+  "description": "Enide — AI IDE for macOS. Any provider, any model, no hidden prompts.",
+  "main": "electron/main.js",
+  "license": "MIT",
+  "author": "dzhavidgasan-pixel",
+  "scripts": {
+    "start": "electron .",
+    "dev": "ENIDE_DEV=1 electron .",
+    "postinstall": "node scripts/rebuild-pty.js",
+    "test": "node test/run-tests.mjs && node test/electron-smoke.mjs",
+    "test:provider": "node scripts/test-provider.mjs",
+    "dist": "electron-builder --mac",
+    "dist:dir": "electron-builder --mac --dir",
+    "dist:universal": "electron-builder --mac --universal",
+    "test:ui": "node test/ui-crawl.mjs",
+    "dist:win": "electron-builder --win"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "monaco-editor": "0.52.2"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0-0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "electron": ">=37.0.0 <50.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.enide.ide",
+    "productName": "Enide",
+    "copyright": "Enide",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "package.json",
+      "!node_modules/monaco-editor/esm/**",
+      "!node_modules/monaco-editor/dev/**",
+      "!node_modules/monaco-editor/min-maps/**"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "identity": null,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Enide runs commands and scripts you or the agent start.",
+        "NSDesktopFolderUsageDescription": "Enide opens projects from your Desktop.",
+        "NSDocumentsFolderUsageDescription": "Enide opens projects from your Documents folder.",
+        "NSDownloadsFolderUsageDescription": "Enide opens projects from your Downloads folder.",
+        "NSMicrophoneUsageDescription": "Enide uses the microphone for voice input in chat."
+      },
+      "artifactName": "${productName}-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "Enide",
+      "backgroundColor": "#000000"
+    },
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Enide",
+      "artifactName": "${productName}-Setup-win-${arch}.${ext}"
+    },
+    "publish": null
+  },
+  "homepage": "https://github.com/dzhavidgasan-pixel/Enide",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dzhavidgasan-pixel/Enide.git"
+  }
+}

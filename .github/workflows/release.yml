@@ -1,0 +1,79 @@
+name: Release
+
+# Push a tag like v1.0.0 (or run manually) → builds Enide for macOS (Apple Silicon + Intel)
+# and Windows, and attaches the files to the GitHub Release of that tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  ENIDE_SKIP_PTY_REBUILD: '1'   # use node-pty's prebuilt binaries for every OS/arch
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: rm -rf node_modules/node-pty/build
+      - name: Build Enide.app (arm64 + x64)
+        run: npx electron-builder --mac dir --arm64 --x64 --publish never -c.mac.identity=null
+      - name: Sign ad-hoc, make .dmg and .zip
+        run: |
+          mkdir -p out
+          for pair in "release/mac-arm64:arm64" "release/mac:x64"; do
+            dir="${pair%%:*}"; arch="${pair##*:}"
+            app="$dir/Enide.app"
+            [ -d "$app" ] || { echo "missing $app"; exit 1; }
+            codesign --force --deep --sign - "$app"
+            codesign --verify --deep --strict "$app"
+            ditto -c -k --keepParent "$app" "out/Enide-mac-$arch.zip"
+            stage="stage-$arch"; rm -rf "$stage"; mkdir "$stage"
+            cp -R "$app" "$stage/"; ln -s /Applications "$stage/Applications"
+            hdiutil create -volname "Enide" -srcfolder "$stage" -ov -format UDZO "out/Enide-mac-$arch.dmg"
+          done
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: mac, path: out/* }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: Remove-Item -Recurse -Force node_modules/node-pty/build -ErrorAction SilentlyContinue
+        shell: pwsh
+      - name: Build installer + portable zip
+        run: npx electron-builder --win nsis zip --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            release/*.exe
+            release/*.zip
+
+  release:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - run: ls -la dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: false
