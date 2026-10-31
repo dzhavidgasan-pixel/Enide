@@ -1,15 +1,17 @@
 name: Release
 
-# Push a tag like v1.0.0 (or run manually) → builds Enide for macOS (Apple Silicon + Intel)
-# and Windows, and attaches the files to the GitHub Release of that tag.
+# Every push to main: if there is no GitHub Release for the version in package.json yet,
+# build Enide for macOS (Apple Silicon + Intel) and Windows and publish the release
+# (tag v<version> is created automatically). Bump "version" in package.json to ship a new one.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag (e.g. v1.0.0)'
-        required: true
+      force:
+        description: 'Rebuild and re-upload even if the release exists'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -19,7 +21,28 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      build: ${{ steps.v.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [ "${{ github.event.inputs.force }}" != "true" ]; then
+            echo "Release $tag already exists — nothing to build."; echo "build=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=yes" >> "$GITHUB_OUTPUT"
+          fi
+
   mac:
+    needs: version
+    if: needs.version.outputs.build == 'yes'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +58,7 @@ jobs:
           for pair in "release/mac-arm64:arm64" "release/mac:x64"; do
             dir="${pair%%:*}"; arch="${pair##*:}"
             app="$dir/Enide.app"
-            [ -d "$app" ] || { echo "missing $app"; exit 1; }
+            [ -d "$app" ] || { echo "missing $app"; ls -la release; exit 1; }
             codesign --force --deep --sign - "$app"
             codesign --verify --deep --strict "$app"
             ditto -c -k --keepParent "$app" "out/Enide-mac-$arch.zip"
@@ -48,6 +71,8 @@ jobs:
         with: { name: mac, path: out/* }
 
   windows:
+    needs: version
+    if: needs.version.outputs.build == 'yes'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +91,7 @@ jobs:
             release/*.zip
 
   release:
-    needs: [mac, windows]
+    needs: [version, mac, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -74,6 +99,23 @@ jobs:
       - run: ls -la dist
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Enide ${{ needs.version.outputs.tag }}
+          make_latest: true
           files: dist/*
           fail_on_unmatched_files: false
+          body: |
+            ## Скачать
+
+            | Система | Файл |
+            |---|---|
+            | macOS · Apple Silicon (M1–M4) | **Enide-mac-arm64.dmg** |
+            | macOS · Intel | **Enide-mac-x64.dmg** |
+            | Windows 10/11 · установщик | **Enide-Setup-win-x64.exe** |
+            | Windows · без установки | **Enide-win-x64.zip** → распаковать → `Enide.exe` |
+
+            **macOS:** при первом запуске — Системные настройки → Конфиденциальность и безопасность → «Всё равно открыть» (или `xattr -cr /Applications/Enide.app`).
+            **Windows:** если SmartScreen предупредит — «Подробнее» → «Выполнить в любом случае».
+
+            Сборки без платной подписи Apple/Microsoft. Исходники и инструкции — в [README](https://github.com/${{ github.repository }}#readme).

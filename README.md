@@ -23,7 +23,7 @@
 | **macOS** · Apple Silicon (M1–M4) | [Enide-mac-arm64.dmg](https://github.com/dzhavidgasan-pixel/Enide/releases/latest/download/Enide-mac-arm64.dmg) | `.zip` — [тут](https://github.com/dzhavidgasan-pixel/Enide/releases/latest/download/Enide-mac-arm64.zip) |
 | **macOS** · Intel | [Enide-mac-x64.dmg](https://github.com/dzhavidgasan-pixel/Enide/releases/latest/download/Enide-mac-x64.dmg) | `.zip` — [тут](https://github.com/dzhavidgasan-pixel/Enide/releases/latest/download/Enide-mac-x64.zip) |
 | **Windows** 10/11 · x64 — установщик | [Enide-Setup-win-x64.exe](https://github.com/dzhavidgasan-pixel/Enide/releases/latest/download/Enide-Setup-win-x64.exe) | |
-| **Windows** — без установки | [Enide-win-x64-portable.zip](https://github.com/dzhavidgasan-pixel/Enide/releases/latest/download/Enide-win-x64-portable.zip) | распаковать → `Enide.exe` |
+| **Windows** — без установки | [Enide-win-x64.zip](https://github.com/dzhavidgasan-pixel/Enide/releases/latest/download/Enide-win-x64.zip) | распаковать → `Enide.exe` |
 
 Все версии — на странице [Releases](https://github.com/dzhavidgasan-pixel/Enide/releases).
 
@@ -114,7 +114,7 @@ npm run dist:win     # Windows: установщик и .zip
 ```
 
 macOS: `bash install-mac.sh` собирает Enide.app, кладёт его в «Программы» и ярлык на рабочий стол.
-Релизы собирает GitHub Actions (`.github/workflows/release.yml`): тег `v*` → сборки для Mac (arm64 + x64) и Windows прикрепляются к релизу.
+Релизы собирает GitHub Actions (`.github/workflows/release.yml`): подними `version` в `package.json` и запушь в `main` — сборки для Mac (arm64 + x64) и Windows сами появятся в новом релизе.
 
 ## Честно о границах
 
