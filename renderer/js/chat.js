@@ -189,7 +189,7 @@ export class ChatPanel {
       const on = this.useWorktree || !!(this.chat && this.chat.worktree);
       this.wtBtn = h('button', { class: `picker-btn ${on ? 'on' : ''}`, title: tr('Run this chat in its own git worktree, so parallel agents never collide. Apply the result when done.', 'Запустить чат в отдельном git worktree — параллельные агенты не мешают друг другу. Потом «Применить».'), onclick: () => { if (this.chat && this.chat.worktree) return; this.useWorktree = !this.useWorktree; this.renderBar(); } }, icon('git'), on ? h('span', null, 'Worktree') : null);
     }
-    this.bar.append(...[modeSeg, this.modelBtn, this.thinkBtn, this.wtBtn, h('span', { class: 'grow' }), this.micBtn, attach, this.sendBtn].filter(Boolean));
+    this.bar.append(...[modeSeg, this.modelBtn, h('span', { class: 'grow' }), this.micBtn, attach, this.sendBtn].filter(Boolean));
     this.updateSend();
     this.updateCtx();
     this.renderHint();
@@ -205,7 +205,6 @@ export class ChatPanel {
       ['noAsk', 'play', tr("Don't ask", 'Не спрашивать'), tr('Edits and commands in the project run without asking; changes outside the project and computer control still ask.', 'Правки и команды в проекте — без вопросов; правки вне проекта и управление компьютером — спросит.')],
     ];
     const modeBtn = h('span', { class: 'perm-seg' }, ...MODES.map(([id, ic, label, tip]) => h('button', { class: `perm ${id} ${mode === id ? 'on' : ''}`, title: tip, onclick: () => this.setApproval(id) }, icon(ic), label)));
-    modeBtn.append(h('button', { class: 'perm more', title: tr('Allow-list & deny-list', 'Белый и чёрный списки'), onclick: () => this.d.openSettings('agent') }, icon('settings')));
     const left = h('span', { class: 'row', style: { gap: '12px' } }, modeBtn);
     if (state.settings.agent && state.settings.agent.computerUse) left.append(h('span', { class: 'row', style: { gap: '5px' } }, icon('monitor'), t('computerUseOn')));
     this.hint.append(left, h('span', { class: 'row', style: { gap: '10px' } }, this.ctxMeter || '', h('a', { onclick: () => this.d.showContextPreview(state.mode) }, t('contextPreview'))));
@@ -282,21 +281,16 @@ export class ChatPanel {
   // ---------- menus ----------
   modelMenu(anchor) {
     const items = [];
-    let lastProv = null;
     const cur = currentModel();
     for (const m of allModels()) {
-      if (m.provider.id !== lastProv) { items.push({ header: m.provider.name, lead: () => providerIcon(m.provider, 12) }); lastProv = m.provider.id; }
-      items.push({ lead: () => modelIcon(m.model, 16), label: m.model.name || m.model.id, sub: m.model.name && m.model.name !== m.model.id ? m.model.id : (m.model.reasoningStyle && m.model.reasoningStyle !== 'none' ? '✦' : ''), keywords: m.provider.name + ' ' + m.model.id, on: cur && cur.ref.providerId === m.ref.providerId && cur.ref.modelId === m.ref.modelId, onclick: () => {
+      items.push({ lead: () => modelIcon(m.model, 18), label: m.model.name || m.model.id, sub: (m.provider.baseUrl || '').replace(/^https?:\/\//, '').split('/')[0], keywords: m.provider.baseUrl + ' ' + m.model.id, on: cur && cur.ref.providerId === m.ref.providerId && cur.ref.modelId === m.ref.modelId, onclick: () => {
         state.modelRef = m.ref;
         emit('save-settings', { defaultModel: m.ref });
         this.renderBar();
         if (!this.chatId) this.renderEmpty();
       } });
     }
-    const r = state.settings.router || {};
-    if (r.smart || r.fast) items.unshift({ label: 'Auto', sub: tr('router', 'роутер'), icon: 'route', on: state.modelRef && state.modelRef.providerId === 'auto', onclick: () => { state.modelRef = { providerId: 'auto', modelId: 'auto' }; emit('save-settings', { defaultModel: state.modelRef }); this.renderBar(); } }, { sep: true });
-    else items.unshift({ label: tr('Auto (set up router…)', 'Auto (настроить роутер…)'), icon: 'route', onclick: () => this.d.openSettings('providers') }, { sep: true });
-    items.push({ sep: true }, { label: t('manageModels'), icon: 'settings', onclick: () => this.d.openSettings('providers') });
+    items.push({ sep: true }, { label: tr('Add model…', 'Добавить модель…'), icon: 'plus', onclick: () => this.d.openSettings('providers') });
     popMenu(anchor, items, { search: tr('Search models', 'Поиск моделей'), above: true, checks: true, minWidth: 300 });
   }
 
@@ -504,18 +498,11 @@ export class ChatPanel {
   renderEmpty() {
     if (this.stars) { this.stars.destroy(); this.stars = null; }
     clear(this.msgs);
-    const sugg = [
-      ['/init', tr('Create AGENTS.md for this project', 'Создать AGENTS.md для проекта')],
-      ['/review', tr('Review uncommitted changes', 'Ревью незакоммиченных изменений')],
-      ['', tr('Explain how this project is structured', 'Объясни, как устроен этот проект')],
-      ['/test', tr('Run tests and fix failures', 'Запусти тесты и почини падения')],
-    ];
     const empty = h('div', { class: 'chat-empty' },
       h('div', { class: 'mini-orb' }),
       h('h2', { class: 'display' }, t('chatEmptyTitle')),
       h('p', null, t('chatEmptySub')),
-      this.connectionPill(),
-      h('div', { class: 'suggestions' }, ...sugg.map(([cmd, text]) => h('button', { class: 'suggestion', onclick: () => { this.ta.value = cmd ? cmd + ' ' : text; this.autosize(); this.updateSend(); this.ta.focus(); } }, cmd ? h('b', null, cmd) : null, text))));
+      this.connectionPill());
     this.msgs.append(empty);
     if (state.settings && state.settings.starfield !== false) this.stars = starfield(empty, { density: 0.00012, light: document.documentElement.dataset.theme === 'light' });
   }
@@ -530,7 +517,7 @@ export class ChatPanel {
       const ic = status === 'ok' ? icon('check') : status === 'bad' ? icon('alert') : status === 'wait' ? h('span', { class: 'spinner' }) : icon('plug');
       pill.append(h('span', { class: 'conn-ic' }, ic), h('span', { class: 'conn-text' }, text), ...(extra || []));
     };
-    if (!cm) { render('bad', tr('No model yet', 'Модель не выбрана'), [btn(tr('Add provider', 'Добавить провайдера'), { cls: 'sm', onclick: () => this.d.openSettings('providers') })]); return pill; }
+    if (!cm) { render('bad', tr('No model yet', 'Модели пока нет'), [btn(tr('Add model', 'Добавить модель'), { cls: 'sm', onclick: () => this.d.openSettings('providers') })]); return pill; }
     const keyless = cm.provider.authStyle === 'none';
     const hasKey = keyless || !!(state.keyHints || {})[cm.provider.id];
     const label = cm.model.name || cm.model.id;
@@ -1022,7 +1009,7 @@ export class ChatPanel {
     }
     text = await this.expandSlash(text);
     if (text == null) { this.ta.value = ''; this.autosize(); return; }
-    if (!allModels().length) { toast(tr('Add a provider and model first.', 'Сначала добавь провайдера и модель.'), 'error'); this.d.openSettings('providers'); return; }
+    if (!allModels().length) { toast(tr('Add a model first (Settings → Models).', 'Сначала добавь модель (Настройки → Модели).'), 'error'); this.d.openSettings('providers'); return; }
     const atts = this.attachments;
     this.attachments = [];
     this.renderAttachments();

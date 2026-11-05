@@ -52,7 +52,7 @@ jobs:
       - run: rm -rf node_modules/node-pty/build
       - name: Build Enide.app (arm64 + x64)
         run: npx electron-builder --mac dir --arm64 --x64 --publish never -c.mac.identity=null
-      - name: Sign ad-hoc, make .dmg and .zip
+      - name: Sign ad-hoc and zip (Enide 1.0 picks the release page when there is no .dmg)
         run: |
           mkdir -p out
           for pair in "release/mac-arm64:arm64" "release/mac:x64"; do
@@ -62,9 +62,6 @@ jobs:
             codesign --force --deep --sign - "$app"
             codesign --verify --deep --strict "$app"
             ditto -c -k --keepParent "$app" "out/Enide-mac-$arch.zip"
-            stage="stage-$arch"; rm -rf "$stage"; mkdir "$stage"
-            cp -R "$app" "$stage/"; ln -s /Applications "$stage/Applications"
-            hdiutil create -volname "Enide" -srcfolder "$stage" -ov -format UDZO "out/Enide-mac-$arch.dmg"
           done
           ls -la out
       - uses: actions/upload-artifact@v4
@@ -110,10 +107,12 @@ jobs:
 
             | Система | Файл |
             |---|---|
-            | macOS · Apple Silicon (M1–M4) | **Enide-mac-arm64.dmg** |
-            | macOS · Intel | **Enide-mac-x64.dmg** |
+            | macOS · Apple Silicon (M1–M4) | **Enide-mac-arm64.zip** → распаковать → перетащить Enide в «Программы» |
+            | macOS · Intel | **Enide-mac-x64.zip** |
             | Windows 10/11 · установщик | **Enide-Setup-win-x64.exe** |
             | Windows · без установки | **Enide-win-x64.zip** → распаковать → `Enide.exe` |
+
+            Уже стоит Enide 1.1+? Обновление придёт само при запуске.
 
             **macOS:** при первом запуске — Системные настройки → Конфиденциальность и безопасность → «Всё равно открыть» (или `xattr -cr /Applications/Enide.app`).
             **Windows:** если SmartScreen предупредит — «Подробнее» → «Выполнить в любом случае».

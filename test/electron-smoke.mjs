@@ -85,13 +85,21 @@ await test('account: gate, register, wrong password, recover with code word, ses
 await test('IPC handlers registered', () => {
   for (const ch of ['app:info', 'settings:get', 'settings:set', 'ws:open', 'agent:send', 'agent:preview', 'ai:inline', 'mcp:status', 'plugins:scaffold', 'requestlog:get', 'app:capture-screen', 'ai:transcribe', 'agent:turn-changes']) assert.ok(handlers.has(ch), ch);
 });
-await test('app:info + settings defaults (Z.ai preset)', async () => {
+await test('app:info + settings defaults: no built-in models; add one by ID + endpoint', async () => {
   const info = await call('app:info');
-  assert.ok(info.presets.length > 15);
   assert.ok(info.defaultPrompts.agent.includes('You are Enide'));
   const s = await call('settings:get');
-  assert.equal(s.settings.providers[0].id, 'zai');
-  assert.equal(s.settings.providers[0].baseUrl, 'https://api.z.ai/api/anthropic');
+  assert.equal(s.settings.providers.length, 0, 'fresh install has no models');
+  assert.equal(s.settings.defaultModel, null);
+  const m = await call('providers:custom', { modelId: 'glm-5.2', baseUrl: 'https://api.z.ai/api/anthropic' });
+  assert.equal(m.protocol, 'anthropic'); assert.equal(m.models[0].id, 'glm-5.2');
+  await call('settings:set', { providers: [{ ...m, id: 'zai' }], defaultModel: { providerId: 'zai', modelId: 'glm-5.2' } });
+  // a second model on the same endpoint uses the same key without pasting it again
+  await call('secrets:set', 'zai', 'sk-shared-123456');
+  await call('settings:set', { providers: [{ ...m, id: 'zai' }, { ...m, id: 'zai2', models: [{ ...m.models[0], id: 'glm-5.3' }] }] });
+  const s2 = await call('settings:get');
+  assert.match(s2.keyHints.zai2, /↺/);
+  await call('settings:set', { providers: [{ ...m, id: 'zai' }] });
 });
 await test('protocol serves renderer, blocks other paths', async () => {
   const ok = await protocolHandler({ url: 'enide://app/renderer/index.html' });

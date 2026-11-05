@@ -7,7 +7,7 @@ const fsp = fs.promises;
 const os = require('os');
 
 const { SettingsStore, SecretStore } = require('./store');
-const { PRESETS, listModels, testConnection, normalizeModel, providerFromPreset, catalogForProvider, VENDORS } = require('./agent/providers');
+const { PRESETS, listModels, testConnection, normalizeModel, providerFromPreset, customModel, VENDORS } = require('./agent/providers');
 const { VendorIcons } = require('./icons');
 const { AuthStore } = require('./auth');
 let auth = null;
@@ -87,7 +87,7 @@ function summaryOf(e) {
 const usage = new UsageStore(USER, () => settings.get());
 const recordUsage = (e) => { const row = usage.record(e); send('usage:entry', row); };
 const semantic = new SemanticIndex({
-  dir: path.join(USER, 'index'), getSettings: () => settings.get(), getApiKey: async (id) => secrets.get(id), fetchImpl,
+  dir: path.join(USER, 'index'), getSettings: () => settings.get(), getApiKey: async (id) => keyFor(id), fetchImpl,
   onProgress: (r, st) => { if (r === root) send('index:progress', st); }, logRequest: (e) => logRequest(e), recordUsage,
 });
 const vendorIcons = new VendorIcons({ dir: path.join(USER, 'icons'), fetchImpl, vendors: VENDORS });
@@ -118,7 +118,7 @@ function configureMcp() {
 // ---------- agent ----------
 const agent = new AgentRunner({
   getSettings: () => settings.get(),
-  getApiKey: async (id) => secrets.get(id),
+  getApiKey: async (id) => keyFor(id),
   chats, checkpoints, toolHost, fetchImpl, trash, recordUsage, userDir: USER,
   services: {
     semanticSearch: async (r, q, k) => { const st = await semantic.status(r); if (st.state !== 'ready') return null; return semantic.search(r, q, k); },
@@ -156,7 +156,7 @@ function resolveRef(ref) {
 function publicSettings() {
   const s = settings.get();
   const keyHints = {};
-  if (!auth || auth.isSignedIn()) for (const p of s.providers || []) keyHints[p.id] = secrets.hint(p.id);
+  if (!auth || auth.isSignedIn()) for (const p of s.providers || []) { const own = secrets.hint(p.id); const k = own ? '' : keyFor(p.id); keyHints[p.id] = own || (k ? `${k.slice(0, 4)}…${k.slice(-4)} ↺` : ''); }
   return { settings: s, keyHints };
 }
 
@@ -322,8 +322,47 @@ function buildMenu() {
 }
 
 // ---------- IPC ----------
+// API key for a model: its own, or the key of another model on the same endpoint
+// (add several models of one provider and paste the key once).
+const normUrl = (u) => String(u || '').trim().replace(/\/+$/, '').toLowerCase();
+function keyFor(id) {
+  const own = secrets.get(id);
+  if (own) return own;
+  const ps = settings.get().providers || [];
+  const p = ps.find((x) => x.id === id);
+  if (!p || !p.baseUrl) return '';
+  for (const q of ps) if (q.id !== id && normUrl(q.baseUrl) === normUrl(p.baseUrl)) { const k = secrets.get(q.id); if (k) return k; }
+  return '';
+}
+
+// v1.1: no built-in model lists. Keep only the models the user added or uses by default,
+// one entry per model (ID + endpoint + key), copying keys where a provider is split.
+async function migrateToCustomModels() {
+  const s = settings.get();
+  if (s.modelsV2) return;
+  const def = s.defaultModel || {};
+  const out = [];
+  for (const p of s.providers || []) {
+    const keep = (p.models || []).filter((m) => m.custom || (def.providerId === p.id && def.modelId === m.id));
+    // a provider the user set a key for keeps at least one model, so nothing they use disappears
+    if (!keep.length && secrets.has(p.id)) { const first = (p.models || []).find((m) => m.enabled !== false); if (first) keep.push(first); }
+    for (let i = 0; i < keep.length; i++) {
+      if (i === 0) { out.push({ ...p, preset: 'custom', models: [keep[i]] }); continue; }
+      const id = `${p.id}-${i + 1}`;
+      const k = secrets.get(p.id);
+      if (k) await secrets.set(id, k);
+      out.push({ ...p, id, preset: 'custom', name: keep[i].name || keep[i].id, models: [keep[i]] });
+    }
+  }
+  settings.replace('providers', out);
+  settings.replace('router', {});
+  const okDefault = out.some((p) => p.id === def.providerId && p.models.some((m) => m.id === def.modelId));
+  settings.replace('defaultModel', okDefault ? def : out[0] ? { providerId: out[0].id, modelId: out[0].models[0].id } : null);
+  settings.set({ modelsV2: true });
+}
+
 // Channels that work before sign-in (the sign-in screen itself needs theme + language).
-const OPEN_CHANNELS = new Set(['app:info', 'settings:get', 'app:open-external']);
+const OPEN_CHANNELS = new Set(['app:info', 'settings:get', 'app:open-external', 'update:check', 'update:install']);
 function h(channel, fn) {
   ipcMain.handle(channel, async (_e, ...args) => {
     try {
@@ -350,7 +389,7 @@ function registerIpc() {
 
   h('app:info', async () => ({
     version: app.getVersion(), platform: process.platform, arch: process.arch, home: os.homedir(),
-    hasPty: hasPty(), encryption: secrets.encryptionAvailable(), presets: PRESETS, vendors: VENDORS, defaultPrompts: DEFAULT_PROMPTS,
+    isPackaged: app.isPackaged, hasPty: hasPty(), encryption: secrets.encryptionAvailable(), presets: PRESETS, vendors: VENDORS, defaultPrompts: DEFAULT_PROMPTS,
     defaultPolicy: DEFAULT_POLICY, mcpCatalog: CATALOG, toolDefs: tools.definitions('agent'), locale: app.getLocale(),
     pendingOpen: pendingOpen.splice(0), userData: USER, autoPolicy: AUTO_POLICY,
   }));
@@ -418,13 +457,10 @@ function registerIpc() {
   h('providers:models', async (providerId, draft) => {
     const p = draft || (settings.get().providers || []).find((x) => x.id === providerId);
     if (!p) throw new Error('Unknown provider');
-    return listModels({ provider: p, apiKey: secrets.get(p.id), fetchImpl });
+    return listModels({ provider: p, apiKey: keyFor(p.id), fetchImpl });
   });
-  h('providers:catalog', async (providerId, draft) => {
-    const p = draft || (settings.get().providers || []).find((x) => x.id === providerId);
-    if (!p) throw new Error('Unknown provider');
-    return catalogForProvider(p).map((m) => ({ ...m, enabled: true }));
-  });
+  h('providers:custom', async (f) => customModel(f || {}));
+  h('providers:normalize', async (m, p) => normalizeModel(m || {}, p || {}));
   h('icons:get', async (vendor) => vendorIcons.get(String(vendor || '')));
   h('icons:clear', async () => { vendorIcons.clear(); return true; });
   h('icons:refresh', async () => {
@@ -437,7 +473,7 @@ function registerIpc() {
     const p = draft || (settings.get().providers || []).find((x) => x.id === providerId);
     if (!p) throw new Error('Unknown provider');
     const m = (p.models || []).find((x) => x.id === modelId) || { id: modelId };
-    return testConnection({ provider: p, apiKey: secrets.get(p.id), model: normalizeModel(m, p), fetchImpl, reasoning: { enabled: !!reasoningEnabled, effort: 'low' } });
+    return testConnection({ provider: p, apiKey: keyFor(p.id), model: normalizeModel(m, p), fetchImpl, reasoning: { enabled: !!reasoningEnabled, effort: 'low' } });
   });
 
   // workspace
@@ -611,7 +647,7 @@ function registerIpc() {
     aiControllers.set(opts.id, ac);
     let text = '';
     try {
-      for await (const ev of streamText({ provider, model, apiKey: secrets.get(provider.id), system: prompts.inlineEditSystem, user, reasoning: opts.reasoning || { enabled: false }, signal: ac.signal, fetchImpl,
+      for await (const ev of streamText({ provider, model, apiKey: keyFor(provider.id), system: prompts.inlineEditSystem, user, reasoning: opts.reasoning || { enabled: false }, signal: ac.signal, fetchImpl,
         onRequest: (r) => logRequest({ ...r, kind: 'inline-edit', provider: provider.name, model: model.id }) })) {
         if (ev.type === 'usage') recordUsage({ providerId: provider.id, provider: provider.name, model: model.id, kind: 'inline-edit', usage: ev.usage });
         else if (ev.type === 'text') { text += ev.text; send('ai:event', opts.id, { type: 'text', text: ev.text }); }
@@ -630,7 +666,7 @@ function registerIpc() {
     if (aiControllers.has('complete')) aiControllers.get('complete').abort();
     aiControllers.set('complete', ctl);
     try {
-      const out = await completeText({ provider, model, apiKey: secrets.get(provider.id), system: prompts.autocompleteSystem, user, maxTokens: ac.maxTokens || 256, signal: ctl.signal, fetchImpl,
+      const out = await completeText({ provider, model, apiKey: keyFor(provider.id), system: prompts.autocompleteSystem, user, maxTokens: ac.maxTokens || 256, signal: ctl.signal, fetchImpl,
         onUsage: (u) => recordUsage({ providerId: provider.id, provider: provider.name, model: model.id, kind: 'autocomplete', usage: u }),
         onRequest: (r) => logRequest({ ...r, kind: 'autocomplete', provider: provider.name, model: model.id }) });
       return stripFences(out).replace(/<CURSOR>/g, '');
@@ -641,7 +677,7 @@ function registerIpc() {
     const { provider, model } = resolveRef(s.inlineEdit && s.inlineEdit.model);
     const prompts = { ...DEFAULT_PROMPTS, ...(s.prompts || {}) };
     const system = fill(prompts.terminalSystem, { shell: require('./lib/shell').shellName(), os: require('./agent/prompt').osLabel(), cwd: cwd || root || os.homedir() });
-    const out = await completeText({ provider, model, apiKey: secrets.get(provider.id), system, user: instruction, maxTokens: 400, fetchImpl,
+    const out = await completeText({ provider, model, apiKey: keyFor(provider.id), system, user: instruction, maxTokens: 400, fetchImpl,
       onRequest: (r) => logRequest({ ...r, kind: 'terminal-command', provider: provider.name, model: model.id }) });
     return stripFences(out).trim().replace(/^\$\s*/, '');
   });
@@ -653,7 +689,7 @@ function registerIpc() {
     if (!diff.trim()) throw new Error('No changes to describe');
     const { provider, model } = resolveRef(s.commitModel);
     const prompts = { ...DEFAULT_PROMPTS, ...(s.prompts || {}) };
-    const out = await completeText({ provider, model, apiKey: secrets.get(provider.id), system: prompts.commitSystem, user: diff, maxTokens: 400, fetchImpl,
+    const out = await completeText({ provider, model, apiKey: keyFor(provider.id), system: prompts.commitSystem, user: diff, maxTokens: 400, fetchImpl,
       onUsage: (u) => recordUsage({ providerId: provider.id, provider: provider.name, model: model.id, kind: 'commit-message', usage: u }),
       onRequest: (r) => logRequest({ ...r, kind: 'commit-message', provider: provider.name, model: model.id }) });
     return stripFences(out).trim();
@@ -712,7 +748,7 @@ function registerIpc() {
     const { provider, model } = resolveRef(s.reviewModel);
     const prompts = { ...DEFAULT_PROMPTS, ...(s.prompts || {}) };
     let u = null;
-    const out = await completeText({ provider, model, apiKey: secrets.get(provider.id), system: prompts.reviewSystem, user: diff, maxTokens: 8000, fetchImpl, reasoning: s.reasoning,
+    const out = await completeText({ provider, model, apiKey: keyFor(provider.id), system: prompts.reviewSystem, user: diff, maxTokens: 8000, fetchImpl, reasoning: s.reasoning,
       onUsage: (x) => { u = x; }, onRequest: (r) => logRequest({ ...r, kind: 'review', provider: provider.name, model: model.id }) });
     if (u) recordUsage({ providerId: provider.id, provider: provider.name, model: model.id, kind: 'review', usage: u });
     const m = /\[[\s\S]*\]/.exec(stripFences(out));
@@ -733,7 +769,7 @@ function registerIpc() {
     aiControllers.set('next-edit', ctl);
     try {
       let u = null;
-      const out = await completeText({ provider, model, apiKey: secrets.get(provider.id), system: prompts.nextEditSystem, user, maxTokens: 600, signal: ctl.signal, fetchImpl, onUsage: (x) => { u = x; },
+      const out = await completeText({ provider, model, apiKey: keyFor(provider.id), system: prompts.nextEditSystem, user, maxTokens: 600, signal: ctl.signal, fetchImpl, onUsage: (x) => { u = x; },
         onRequest: (r) => logRequest({ ...r, kind: 'next-edit', provider: provider.name, model: model.id }) });
       if (u) recordUsage({ providerId: provider.id, provider: provider.name, model: model.id, kind: 'next-edit', usage: u });
       const m = /\{[\s\S]*\}/.exec(out);
@@ -793,6 +829,7 @@ function registerIpc() {
 
   // updates
   h('update:check', async () => checkForUpdate());
+  h('update:install', async (info) => installUpdate(info));
 
   h('requestlog:list', async () => requestLog.map(summaryOf));
   h('requestlog:get', async (id) => requestLog.find((x) => x.id === id) || null);
@@ -806,14 +843,78 @@ function semverGt(a, b) {
   for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return true; if ((pa[i] || 0) < (pb[i] || 0)) return false; }
   return false;
 }
+// ---------- updates ----------
+// Latest GitHub release → the right file for this OS/arch. Packaged apps must update
+// (the renderer shows a blocking screen); dev runs only get a notice.
+function pickUpdateAsset(assets) {
+  const list = assets || [];
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const find = (re) => list.find((a) => re.test(a.name));
+  if (process.platform === 'darwin') return find(new RegExp(`mac-${arch}\\.zip$`, 'i')) || find(new RegExp(`mac-${arch}\\.dmg$`, 'i')) || find(/mac.*\.zip$/i);
+  if (process.platform === 'win32') return find(/Setup.*win.*\.exe$/i) || find(/win.*\.zip$/i);
+  return find(/linux.*\.(AppImage|zip)$/i);
+}
+
 async function checkForUpdate() {
   const repo = ((settings.get().updates || {}).repo || '').trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return { configured: false, current: app.getVersion() };
   const res = await fetchImpl(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { accept: 'application/vnd.github+json', 'user-agent': 'Enide' } });
   if (!res.ok) throw new Error(`GitHub: HTTP ${res.status}`);
   const j = await res.json();
-  const asset = (j.assets || []).find((a) => /\.dmg$/i.test(a.name) && (process.arch === 'arm64' ? !/x64|intel/i.test(a.name) : !/arm64/i.test(a.name))) || (j.assets || []).find((a) => /\.dmg$/i.test(a.name));
-  return { configured: true, current: app.getVersion(), latest: j.tag_name, available: semverGt(j.tag_name, app.getVersion()), url: asset ? asset.browser_download_url : j.html_url, notes: String(j.body || '').slice(0, 2000) };
+  const asset = pickUpdateAsset(j.assets);
+  return {
+    configured: true, current: app.getVersion(), latest: j.tag_name, available: semverGt(j.tag_name, app.getVersion()),
+    required: app.isPackaged, page: j.html_url, url: asset ? asset.browser_download_url : j.html_url,
+    asset: asset ? { name: asset.name, size: asset.size, url: asset.browser_download_url } : null, notes: String(j.body || '').slice(0, 4000),
+  };
+}
+
+// Download the new version and install it:
+//  macOS — unpack Enide.app next to the running one, swap them, relaunch;
+//  Windows — run the installer (it closes this app and reopens the new one).
+async function installUpdate(info) {
+  const asset = info && info.asset;
+  if (!asset) throw new Error('No file for this system in the release');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'enide-update-'));
+  const file = path.join(dir, asset.name);
+  const res = await fetchImpl(asset.url, { headers: { 'user-agent': 'Enide', accept: 'application/octet-stream' }, redirect: 'follow' });
+  if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status}`);
+  const total = asset.size || +res.headers.get('content-length') || 0;
+  const out = fs.createWriteStream(file);
+  let got = 0, last = 0;
+  for await (const chunk of res.body) {
+    got += chunk.length;
+    if (!out.write(chunk)) await new Promise((r) => out.once('drain', r));
+    if (Date.now() - last > 150) { last = Date.now(); send('update:progress', { got, total }); }
+  }
+  await new Promise((r, j) => out.end((e) => (e ? j(e) : r())));
+  send('update:progress', { got, total, done: true });
+  const { execFile } = require('child_process');
+  const run = (cmd, args) => new Promise((resolve, reject) => execFile(cmd, args, (e, so, se) => (e ? reject(new Error(se || e.message)) : resolve(so))));
+  if (process.platform === 'darwin') {
+    const current = path.resolve(process.execPath, '../../..'); // …/Enide.app
+    if (!app.isPackaged || !current.endsWith('.app') || /\.dmg$/i.test(file)) { await shell.openPath(file); return { opened: file }; }
+    const unpack = path.join(dir, 'unpacked');
+    await run('/usr/bin/ditto', ['-x', '-k', file, unpack]);
+    const fresh = fs.readdirSync(unpack).map((n) => path.join(unpack, n)).find((p) => p.endsWith('.app'));
+    if (!fresh) throw new Error('Enide.app not found in the update');
+    const old = current + '.old';
+    await run('/bin/rm', ['-rf', old]);
+    await run('/bin/mv', [current, old]);
+    try { await run('/usr/bin/ditto', [fresh, current]); }
+    catch (e) { await run('/bin/mv', [old, current]).catch(() => {}); throw new Error(`Cannot write ${current}: ${e.message}`); }
+    await run('/usr/bin/xattr', ['-cr', current]).catch(() => {});
+    await run('/bin/rm', ['-rf', old]).catch(() => {});
+    setTimeout(() => { app.relaunch(); app.exit(0); }, 400);
+    return { relaunching: true };
+  }
+  if (process.platform === 'win32' && /\.exe$/i.test(file)) {
+    require('child_process').spawn(file, [], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(() => app.quit(), 800);
+    return { installer: true };
+  }
+  await shell.openPath(file);
+  return { opened: file };
 }
 
 // ---------- automations ----------
@@ -860,7 +961,7 @@ async function transcribe(buf, mimeType) {
     || providers.find((x) => ['openai', 'groq'].includes(x.preset) && secrets.has(x.id))
     || providers.find((x) => x.protocol === 'gemini' && secrets.has(x.id));
   if (!p) throw new Error('Voice input needs a speech-to-text provider: add OpenAI, Groq or Gemini in Settings → Providers and choose it in Settings → Voice. Tip: macOS Dictation (press Fn twice) works in any text field without setup.');
-  const key = secrets.get(p.id);
+  const key = keyFor(p.id);
   const prompts = { ...DEFAULT_PROMPTS, ...(s.prompts || {}) };
   if (p.protocol === 'gemini') {
     const model = v.model || 'gemini-2.5-flash';
@@ -963,6 +1064,7 @@ app.on('second-instance', (_e, argv) => {
 app.whenReady().then(async () => {
   secrets = new SecretStore(USER, safeStorage);
   auth = new AuthStore({ dir: USER, safeStorage });
+  await migrateToCustomModels();
   const devIcon = path.join(APP_ROOT, 'build', 'icon.png');
   if (process.platform === 'darwin' && app.dock && !app.isPackaged && fs.existsSync(devIcon)) { try { app.dock.setIcon(devIcon); } catch {} }
   nativeTheme.themeSource = settings.get().theme === 'light' ? 'light' : settings.get().theme === 'system' ? 'system' : 'dark';

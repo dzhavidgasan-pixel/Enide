@@ -13,6 +13,7 @@ import { ChatTabs } from './chatTabs.js';
 import { ChatsPane } from './chatsPane.js';
 import { authGate, avatar } from './auth.js';
 import { initTooltips } from './tooltips.js';
+import { checkRequiredUpdate, showUpdateScreen } from './update.js';
 import { openSettings } from './settings.js';
 import { quickOpen, commandPalette } from './palette.js';
 import { welcome } from './welcome.js';
@@ -73,24 +74,24 @@ function buildShell() {
   const title = h('div', { class: `titlebar ${api.platform !== 'darwin' || api.isMock ? 'no-traffic' : ''}` },
     h('div', { class: 'wordmark' }, 'En', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'),
     h('div', { class: 'spacer' }), ui.cc,
-    ui.btnSidebar, ui.btnPanel, ui.btnAgent, ui.agentPill, ui.avatarBtn = accountButton());
+    ui.btnSidebar, ui.btnPanel, ui.avatarBtn = accountButton());
 
   // activity bar
   ui.views = {};
   ui.activity = h('div', { class: 'activitybar' });
-  const act = (id, ic, label, key) => {
+  const act = (id, ic, label, key, hidden) => {
     const b = iconBtn(ic, `${label} (${key})`, () => showView(id, true));
     ui.views[id] = { btn: b };
-    ui.activity.append(b);
+    if (!hidden) ui.activity.append(b);
   };
   act('chats', 'newChat', tr('Chats', 'Чаты'), '⌘⇧H');
   act('explorer', 'files', tr('Explorer', 'Проводник'), '⌘⇧E');
   act('search', 'search', tr('Search', 'Поиск'), '⌘⇧F');
   act('scm', 'git', 'Source Control', '⌃⇧G');
-  act('plugins', 'puzzle', tr('Plugins & MCP', 'Плагины и MCP'), '⌘⇧X');
+  act('plugins', 'puzzle', tr('Plugins & MCP', 'Плагины и MCP'), '⌘⇧X', true);
   ui.scmCount = h('span', { class: 'count hidden' });
   ui.views.scm.btn.append(ui.scmCount);
-  ui.activity.append(h('div', { class: 'fill' }), iconBtn('activity', t('requestLog'), () => runCmd('request-log')), iconBtn('settings', `${t('settings')} (⌘,)`, () => openSettings()));
+  ui.activity.append(h('div', { class: 'fill' }), iconBtn('settings', `${t('settings')} (⌘,)`, () => openSettings()));
 
   ui.sidebar = h('div', { class: 'sidebar', style: { width: (L().sidebarWidth || 260) + 'px' } });
   for (const id of Object.keys(ui.views)) { ui.views[id].el = h('div', { class: 'col', style: { flex: 1, minHeight: 0, display: 'none' } }); ui.sidebar.append(ui.views[id].el); }
@@ -120,7 +121,7 @@ function buildShell() {
     problems: h('span', { class: 'item click', title: tr('Problems (⌘⇧M)', 'Проблемы (⌘⇧M)'), onclick: () => runCmd('problems') }),
     today: h('span', { class: 'item click hidden', title: tr('Spent today', 'Потрачено сегодня'), onclick: () => openSettings('usage') }),
   };
-  const sb = h('div', { class: 'statusbar' }, ui.status.branch, ui.status.problems, ui.status.agent, h('span', { class: 'fill' }), ui.status.index, ui.status.today, ui.status.pos, ui.status.lang, ui.status.tab, ui.status.model, ui.status.eye);
+  const sb = h('div', { class: 'statusbar' }, ui.status.branch, ui.status.problems, ui.status.agent, h('span', { class: 'fill' }), ui.status.pos, ui.status.model);
   app.append(title, main, sb);
 
   // components
@@ -500,10 +501,8 @@ async function checkUpdate(manual) {
   try {
     const r = await api.invoke('update:check');
     if (!r || !r.configured) { if (manual) toast(tr('Set the GitHub repo for updates in Settings → About.', 'Укажи GitHub-репозиторий для обновлений в Настройки → О программе.'), 'info', 6000); return; }
-    if (r.available) {
-      const tst = h('div', null, tr(`Enide ${r.latest} is available (you have ${r.current}). `, `Доступна Enide ${r.latest} (у тебя ${r.current}). `), h('a', { style: { cursor: 'pointer', textDecoration: 'underline' }, onclick: () => api.invoke('app:open-external', r.url) }, tr('Download', 'Скачать')));
-      toast(tst, 'ok', 15000);
-    } else if (manual) toast(tr(`You have the latest version (${r.current}).`, `Установлена последняя версия (${r.current}).`), 'ok');
+    if (r.available) showUpdateScreen(r, { blocking: !!r.required });
+    else if (manual) toast(tr(`You have the latest version (${r.current}).`, `Установлена последняя версия (${r.current}).`), 'ok');
   } catch (e) { if (manual) toast(e.message, 'error'); }
 }
 
@@ -511,6 +510,7 @@ async function boot() {
   state.info = await api.invoke('app:info');
   applySettings(await api.invoke('settings:get'));
   initTooltips();
+  const upd = await checkRequiredUpdate(); // a newer release blocks here until it is installed
   state.user = await authGate();
   applySettings(await api.invoke('settings:get')); // key hints and the rest are readable after sign-in
   buildShell();
@@ -524,7 +524,7 @@ async function boot() {
   updateTitle();
   api.invoke('index:status').then(renderIndexStatus).catch(() => {});
   refreshToday();
-  if ((state.settings.updates || {}).auto !== false && (state.settings.updates || {}).repo) setTimeout(() => checkUpdate(false), 4000);
+  if (upd && upd.available && !upd.required) toast(tr(`Enide ${upd.latest} is available (dev build — not forced).`, `Доступна Enide ${upd.latest} (dev-сборка — без принуждения).`), 'info', 6000);
   if (!allModels().length) setTimeout(() => toast(tr('Add a provider and API key to start — Settings → Providers.', 'Добавь провайдера и API-ключ — Настройки → Провайдеры.'), 'info', 7000), 800);
   else if (!Object.values(state.keyHints).some(Boolean) && !(state.settings.providers || []).some((p) => p.authStyle === 'none')) setTimeout(() => { toast(tr('Paste your API key in Settings → Providers.', 'Вставь API-ключ в Настройки → Провайдеры.'), 'info', 7000); }, 800);
 }

@@ -1,6 +1,8 @@
 // Mock of the Electron bridge so the UI can be previewed and tested in a plain browser.
 // Not used inside the app.
-import { CATALOG, VENDORS, KIMI, ZAI } from './mock-catalog.js';
+const VENDORS = { anthropic: { name: 'Anthropic', domain: 'anthropic.com' }, openai: { name: 'OpenAI', domain: 'openai.com' }, moonshot: { name: 'Moonshot · Kimi', domain: 'kimi.com' }, zai: { name: 'Z.ai · GLM', domain: 'z.ai' }, deepseek: { name: 'DeepSeek', domain: 'deepseek.com' } };
+const custom = (id, modelId, name, baseUrl, protocol, extra = {}) => ({ id, preset: 'custom', name, protocol, baseUrl, authStyle: protocol === 'anthropic' ? 'both' : 'bearer', headers: {}, enabled: true, streamUsage: true, maxTokensField: 'max_tokens',
+  models: [{ id: modelId, name, contextWindow: 200000, maxOutput: 32000, vision: false, tools: true, reasoningStyle: protocol === 'anthropic' ? 'anthropic-budget' : 'thinking-object', enabled: true, custom: true, extraBody: {}, ...extra }] });
 const ROOT = '/Users/you/Projects/light-app';
 const listeners = new Map();
 let mockUser = null;
@@ -19,11 +21,9 @@ const FILES = {
 };
 
 const providers = [
-  ZAI,
-  KIMI,
-  { id: 'or', preset: 'openrouter', name: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', authStyle: 'bearer', headers: {}, enabled: true, streamUsage: true, maxTokensField: 'max_tokens',
-    models: [{ id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', contextWindow: 1000000, maxOutput: 64000, vision: true, tools: true, reasoningStyle: 'openrouter', enabled: true, extraBody: {} },
-      { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', contextWindow: 128000, maxOutput: 8192, vision: false, tools: true, reasoningStyle: 'openrouter', enabled: true, extraBody: {} }] },
+  custom('zai', 'glm-5.2', 'GLM-5.2', 'https://api.z.ai/api/anthropic', 'anthropic', { contextWindow: 1000000 }),
+  custom('kimi', 'kimi-k3', 'Kimi K3', 'https://api.moonshot.ai/v1', 'openai', { contextWindow: 1048576, vision: true, reasoningStyle: 'kimi-effort' }),
+  custom('ds', 'deepseek-v4-pro', '', 'https://api.deepseek.com', 'openai', { reasoningStyle: 'none' }),
 ];
 
 let settings = {
@@ -33,7 +33,7 @@ let settings = {
   agent: { maxSteps: 80, checkpoints: true, autoOpenEdits: true, computerUse: false, policy: { write: 'auto', writeOutside: 'ask', readOutside: 'auto', command: 'ask', allowList: ['ls', 'git status', 'npm test'], denyList: ['rm -rf /', 'sudo '], allowChained: false, network: 'auto', computer: 'ask', mcp: 'ask', plugins: 'ask' }, tools: {} },
   prompts: {}, rules: { global: '', useProjectFiles: true, disabledFiles: [] },
   editor: { fontSize: 13, fontFamily: 'Menlo, monospace', tabSize: 2, wordWrap: 'off', minimap: false, autoSave: 'off', lineHeight: 20 },
-  router: { fast: { providerId: 'zai', modelId: 'glm-4.5-air' }, smart: { providerId: 'zai', modelId: 'glm-5.2' } }, index: { enabled: true, providerId: 'or', model: 'text-embedding-3-small' }, automations: [{ id: 'a1', name: 'Ночные тесты', enabled: true, folder: ROOT, prompt: 'Прогони тесты и почини падения.', mode: 'agent', approval: 'safe', schedule: { type: 'daily', time: '09:00', days: [1,2,3,4,5] }, lastRun: Date.now() - 864e5, lastStatus: 'ok' }], hooks: { enabled: true }, keybindings: {}, updates: { repo: '' },
+  router: {}, index: { enabled: true, providerId: 'kimi', model: 'text-embedding-3-small' }, automations: [{ id: 'a1', name: 'Ночные тесты', enabled: true, folder: ROOT, prompt: 'Прогони тесты и почини падения.', mode: 'agent', approval: 'safe', schedule: { type: 'daily', time: '09:00', days: [1,2,3,4,5] }, lastRun: Date.now() - 864e5, lastStatus: 'ok' }], hooks: { enabled: true }, keybindings: {}, updates: { repo: 'dzhavidgasan-pixel/Enide' },
   terminal: { fontSize: 12 }, mcpServers: [{ id: 'pw', name: 'Playwright', type: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'], enabled: true }],
   plugins: { disabled: [] }, network: { proxy: '' }, voice: {}, recent: [ROOT, '/Users/you/Projects/enicloud', '/Users/you/Desktop/bot'],
   layout: { sidebar: true, panel: /panel=1/.test(location.search), agent: true, sidebarWidth: 250, agentWidth: 430, panelHeight: 220 },
@@ -158,7 +158,10 @@ const HANDLERS = {
   'auth:update': ({ nick }) => (mockUser = { ...mockUser, nick }),
   'auth:change-password': () => true,
   'auth:change-word': () => true,
-  'providers:catalog': (id) => { const p = settings.providers.find((x) => x.id === id); return CATALOG[p && p.preset] || []; },
+  'providers:custom': ({ baseUrl = '', protocol } = {}) => custom('m' + Date.now().toString(36), '', '', baseUrl, protocol || (/anthropic/.test(baseUrl) ? 'anthropic' : 'openai')),
+  'providers:normalize': (m) => ({ contextWindow: 128000, maxOutput: 8192, vision: false, tools: true, reasoningStyle: 'none', enabled: true, extraBody: {}, ...m }),
+  'update:check': () => (/update=1/.test(location.search) ? { configured: true, available: true, required: true, current: '1.0.0', latest: 'v1.1.0', page: '#', asset: { name: 'Enide-mac-arm64.zip', size: 125e6, url: '#' }, notes: '- Свои модели: ID, адрес и ключ\n- Проще интерфейс и крупнее кнопки\n- Обновление прямо из приложения' } : { configured: true, available: false, current: '1.1.0' }),
+  'update:install': async () => { for (let i = 1; i <= 20; i++) { await sleep(60); fire('update:progress', { got: i * 6.25e6, total: 125e6, done: i === 20 }); } await sleep(300); return { relaunching: true }; },
   'icons:get': () => null,
   'icons:refresh': () => ({ ok: 0, total: Object.keys(VENDORS).length, missing: [] }),
   'app:info': () => ({ version: '0.1.0', platform: 'darwin', arch: 'arm64', home: '/Users/you', hasPty: true, encryption: true, locale: 'ru-RU', userData: '/Users/you/Library/Application Support/Enide',

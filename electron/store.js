@@ -3,19 +3,17 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { providerFromPreset } = require('./agent/providers');
 const { DEFAULT_POLICY } = require('./agent/agent');
 
 function defaults() {
-  const zai = providerFromPreset('zai-anthropic', 'zai');
   return {
     version: 1,
     language: 'auto',
     theme: 'dark',
     starfield: true,
-    providers: [zai],
+    providers: [], // models the user adds: ID + endpoint + key
     iconOverrides: {}, // vendor -> data URL picked by the user
-    defaultModel: { providerId: 'zai', modelId: 'glm-5.2' },
+    defaultModel: null,
     reasoning: { enabled: true, effort: 'medium' },
     autocomplete: { enabled: false, nextEdit: true, model: null, debounceMs: 350, maxPrefix: 4000, maxSuffix: 1500, maxTokens: 256 },
     inlineEdit: { model: null },

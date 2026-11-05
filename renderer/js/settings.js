@@ -8,30 +8,22 @@ import { avatar } from './auth.js';
 import { modelIcon, providerIcon, vendorIcon, vendorOfModel, vendorOfProvider, resetVendorIcons } from './vendors.js';
 
 const SECTIONS = [
-  ['account', 'user', () => tr('Account', 'Аккаунт')],
-  ['general', 'settings', () => tr('General', 'Общие')],
-  ['providers', 'cpu', () => tr('Providers & models', 'Провайдеры и модели')],
-  ['agent', 'shield', () => tr('Agent & permissions', 'Агент и разрешения')],
-  ['prompts', 'eye', () => tr('Prompts & rules', 'Промпты и правила')],
+  ['providers', 'cpu', () => tr('Models', 'Модели')],
+  ['rules', 'edit', () => tr('Rules', 'Правила')],
   ['plugins', 'puzzle', () => tr('Plugins & MCP', 'Плагины и MCP')],
-  ['index', 'layers', () => tr('Index & docs', 'Индекс и документация')],
-  ['automations', 'clock', () => tr('Automations', 'Автозадачи')],
-  ['usage', 'activity', () => tr('Usage & cost', 'Расход и стоимость')],
-  ['editor', 'edit', () => tr('Editor & terminal', 'Редактор и терминал')],
-  ['ai', 'textCursor', () => tr('Tab, ⌘K & voice', 'Tab, ⌘K и голос')],
-  ['keys', 'command', () => tr('Shortcuts', 'Горячие клавиши')],
-  ['about', 'info', () => tr('About', 'О программе')],
+  ['general', 'settings', () => tr('General', 'Основное')],
+  ['account', 'user', () => tr('Account', 'Аккаунт')],
 ];
 
 const REASONING_STYLES = [
-  ['none', 'none'], ['anthropic-adaptive', 'Anthropic · adaptive (Claude 4.6+)'], ['anthropic-budget', 'Anthropic · budget_tokens'],
+  ['none', '—'], ['anthropic-adaptive', 'Anthropic · adaptive (Claude 4.6+)'], ['anthropic-budget', 'Anthropic · budget_tokens'],
   ['openai-effort', 'OpenAI · reasoning_effort'], ['openai-responses', 'OpenAI Responses · reasoning'], ['openrouter', 'OpenRouter · reasoning'],
   ['thinking-object', 'thinking: {type} (GLM, Kimi, DeepSeek)'], ['enable-thinking', 'enable_thinking (Qwen)'], ['kimi-effort', 'Kimi K3 · reasoning_effort low/high/max'], ['gemini', 'Gemini · thinkingConfig'],
 ];
 
 let open = null;
 
-export function openSettings(section = 'general') {
+export function openSettings(section = 'providers') {
   if (open) { open.go(section); return; }
   const nav = h('div', { class: 'set-nav' }, h('div', { class: 'brand wordmark' }, 'En', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'));
   const main = h('div', { class: 'set-main selectable' });
@@ -46,7 +38,7 @@ export function openSettings(section = 'general') {
     for (const [sid, ic, label] of SECTIONS) nav.append(h('button', { class: sid === id ? 'on' : '', onclick: () => go(sid) }, icon(ic), label()));
     clear(main);
     main.scrollTop = 0;
-    RENDER[id](main, () => go(id));
+    (RENDER[id] || RENDER.providers)(main, () => go(id));
   };
   open = { go, close };
   go(section);
@@ -141,46 +133,44 @@ const RENDER = {
   },
 
   general(main, rerender) {
-    head(main, tr('General', 'Общие'));
+    head(main, tr('General', 'Основное'));
+    const up = S().updates || {};
     main.append(
       field(tr('Language', 'Язык'), null, seg([{ value: 'auto', label: 'Auto' }, { value: 'en', label: 'EN' }, { value: 'ru', label: 'RU' }], S().language || 'auto', async (v) => { await save({ language: v }); rerender(); })),
       field(tr('Theme', 'Тема'), null, seg([{ value: 'dark', label: tr('Dark', 'Тёмная') }, { value: 'light', label: tr('Light', 'Светлая') }, { value: 'system', label: tr('System', 'Системная') }], S().theme || 'dark', (v) => save({ theme: v }))),
-      field(tr('Starfield', 'Звёздный фон'), tr('Quiet animated background on empty screens', 'Тихий анимированный фон на пустых экранах'), toggle(S().starfield !== false, (v) => save({ starfield: v }))),
-      field(tr('Default model', 'Модель по умолчанию'), null, select(modelOptions(false), refToVal(S().defaultModel), (v) => { const r = valToRef(v); state.modelRef = r; save({ defaultModel: r }); })),
-      field(tr('Network proxy', 'Прокси'), tr('Used for all model requests. Empty = system proxy. Example: http://127.0.0.1:7890 or socks5://127.0.0.1:1080', 'Для всех запросов к моделям. Пусто — системный прокси. Пример: http://127.0.0.1:7890 или socks5://127.0.0.1:1080'), input((S().network || {}).proxy, (v) => save({ network: { proxy: v.trim() } }), { placeholder: 'http://host:port' })),
-      field(tr('Data folder', 'Папка данных'), tr('Settings, chats, checkpoints and plugins', 'Настройки, чаты, чекпоинты и плагины'), btn(tr('Open in Finder', 'Открыть в Finder'), { cls: 'sm', icon: 'external', onclick: () => api.invoke('app:open-path', state.info.userData) })),
+      field(tr('Proxy', 'Прокси'), tr('Only if the model API is not reachable directly. Empty = system proxy.', 'Только если API модели недоступен напрямую. Пусто — системный.'), input((S().network || {}).proxy, (v) => save({ network: { proxy: v.trim() } }), { placeholder: 'http://127.0.0.1:7890' })),
+      field(tr('Version', 'Версия'), up.repo ? `github.com/${up.repo}` : null, h('div', { class: 'row' }, h('span', { class: 'mono', style: { marginRight: '10px' } }, state.info.version), btn(tr('Check for updates', 'Проверить обновления'), { icon: 'download', onclick: () => emit('cmd', 'check-update') }))),
     );
   },
 
+  // Models: each one is an ID + endpoint + key. Nothing built in.
   providers(main, rerender) {
-    head(main, tr('Providers & models', 'Провайдеры и модели'), tr('Any API that speaks Anthropic Messages, OpenAI Chat Completions, OpenAI Responses or Gemini. Keys are encrypted with the macOS Keychain.', 'Любой API с протоколом Anthropic Messages, OpenAI Chat Completions, OpenAI Responses или Gemini. Ключи шифруются через Связку ключей macOS.'));
-    const providers = S().providers || [];
-    const iconsBtn = btn(tr('Refresh icons', 'Обновить иконки'), { cls: 'sm', icon: 'refresh', onclick: async (e) => {
-      const b = e.currentTarget; b.disabled = true;
-      try {
-        const r = await api.invoke('icons:refresh');
-        resetVendorIcons();
-        toast(r.ok ? tr(`Icons: ${r.ok} of ${r.total}`, `Иконки: ${r.ok} из ${r.total}`) + (r.missing.length ? ` · ${tr('no access', 'нет доступа')}: ${r.missing.slice(0, 4).join(', ')}` : '') : tr('No internet access to vendor sites', 'Нет доступа к сайтам компаний'), r.ok ? 'ok' : 'error', 5000);
-        rerender();
-      } catch (err) { toast(err.message, 'error'); }
-      b.disabled = false;
-    } });
-    const addBtn = btn(t('addProvider'), { cls: 'primary sm', icon: 'plus', onclick: (e) => popMenu(e.currentTarget, state.info.presets.map((p) => ({ label: p.name, sub: p.protocol, onclick: async () => {
-      const np = await api.invoke('providers:new', p.preset);
-      await save({ providers: [...providers, np] });
-      openProv.add(np.id);
+    head(main, tr('Models', 'Модели'), tr('Add any model: its ID, the API endpoint and a key. Works with OpenAI-compatible APIs, Anthropic and Gemini.', 'Добавь любую модель: её ID, адрес API и ключ. Работает с OpenAI-совместимыми API, Anthropic и Gemini.'));
+    const add = btn(tr('Add model', 'Добавить модель'), { cls: 'primary lg', icon: 'plus', onclick: async () => {
+      const list = S().providers || [];
+      const last = list[list.length - 1];
+      const np = await api.invoke('providers:custom', { baseUrl: last ? last.baseUrl : '', protocol: last ? last.protocol : undefined });
+      await save({ providers: [...list, np] });
+      openModel.add(np.id);
       rerender();
-    } })), { search: tr('Search', 'Поиск'), minWidth: 320 }) });
-    main.append(h('div', { class: 'row', style: { marginBottom: '16px' } }, addBtn, iconsBtn));
-    for (const p of providers) main.append(providerCard(p, rerender));
-    const r = S().router || {};
-    const setR = (k, v) => save({ router: { ...r, [k]: valToRef(v) } });
-    main.append(h('div', { class: 'group-title' }, tr('Auto model router', 'Роутер моделей (Auto)')),
-      h('p', { class: 'lead', style: { marginBottom: '6px' } }, tr('Choose "Auto" in the model picker and Enide picks per message: fast for short questions, vision when images are attached, smart for everything else.', 'Выбери «Auto» в списке моделей — Enide подберёт модель под сообщение: быструю для коротких вопросов, vision для картинок, умную для остального.')),
-      field(tr('Fast', 'Быстрая'), tr('short questions, Ask mode', 'короткие вопросы, режим Вопрос'), select(modelOptions(true), refToVal(r.fast), (v) => setR('fast', v))),
-      field(tr('Smart', 'Умная'), tr('agent work, refactors, debugging', 'работа агента, рефакторинг, отладка'), select(modelOptions(true), refToVal(r.smart), (v) => setR('smart', v))),
-      field('Vision', tr('when images are attached', 'когда прикреплены картинки'), select(modelOptions(true), refToVal(r.vision), (v) => setR('vision', v))));
-    if (!providers.length) main.append(h('div', { class: 'empty-pane' }, tr('No providers yet.', 'Провайдеров пока нет.')));
+    } });
+    main.append(h('div', { class: 'models-top' }, add));
+    const list = S().providers || [];
+    if (!list.length) main.append(h('div', { class: 'models-empty' }, icon('cpu'), h('b', null, tr('No models yet', 'Моделей пока нет')), h('span', null, tr('Press "Add model" and paste the model ID, endpoint and key.', 'Нажми «Добавить модель» и вставь ID модели, адрес и ключ.'))));
+    for (const p of list) main.append(modelCard(p, rerender));
+  },
+
+  // One field. Added to every agent request (visible in "What the model sees").
+  rules(main) {
+    head(main, tr('Rules', 'Правила'), tr('Global rules for the agent — added to every request. AGENTS.md / .cursorrules in a project are picked up too.', 'Глобальные правила для агента — добавляются к каждому запросу. AGENTS.md / .cursorrules в проекте тоже учитываются.'));
+    const r = S().rules || {};
+    const ta = h('textarea', { class: 'textarea rules-ta', rows: 18, spellcheck: 'false', placeholder: tr('For example:\n— Answer in English\n— Write tests for new code\n— Do not touch the migrations folder', 'Например:\n— Отвечай по-русски\n— Пиши тесты для нового кода\n— Не трогай папку migrations') });
+    ta.value = r.global || '';
+    const st = h('span', { class: 'rules-st' });
+    let t0;
+    ta.addEventListener('input', () => { clearTimeout(t0); st.textContent = '…'; t0 = setTimeout(async () => { await save({ rules: { ...(S().rules || {}), global: ta.value } }); st.textContent = tr('Saved', 'Сохранено'); }, 500); });
+    main.append(ta, h('div', { class: 'rules-foot' }, st));
+    setTimeout(() => ta.focus(), 30);
   },
 
   agent(main, rerender) {
@@ -549,238 +539,106 @@ const RENDER = {
 
 function openSettingsClose() { if (open) open.close(); }
 
-// ---------- provider card ----------
-const openProv = new Set();
-function providerCard(p, rerender) {
-  const providers = () => S().providers || [];
-  const update = (patch) => save({ providers: providers().map((x) => (x.id === p.id ? { ...x, ...patch } : x)) });
-  const body = h('div', { class: `prov-body ${openProv.has(p.id) ? '' : 'hidden'}` });
-  const initials = (p.name || '?').replace(/[^A-Za-zА-Яа-я0-9]/g, '').slice(0, 2).toUpperCase();
-  const keyHint = state.keyHints[p.id];
-  const headEl = h('div', { class: 'prov-head' },
-    h('div', { class: 'tile vtile' }, providerIcon(p, 22)),
-    h('div', { class: 'grow' }, h('div', { class: 'nm' }, p.name), h('div', { class: 'sub ellipsis' }, `${p.protocol} · ${p.baseUrl || '—'} · ${(p.models || []).length} models${keyHint ? ' · key ' + keyHint : p.authStyle === 'none' ? '' : ' · ' + tr('no key', 'нет ключа')}`)),
-    toggle(p.enabled !== false, (v) => update({ enabled: v })));
-  headEl.addEventListener('click', (e) => { if (e.target.closest('.switch')) return; body.classList.toggle('hidden'); if (body.classList.contains('hidden')) openProv.delete(p.id); else openProv.add(p.id); });
-  const preset = state.info.presets.find((x) => x.preset === p.preset);
-  const keyInput = h('input', { class: 'input', type: 'password', placeholder: keyHint ? `${tr('Saved', 'Сохранён')}: ${keyHint} — ${tr('paste to replace', 'вставь, чтобы заменить')}` : tr('Paste API key', 'Вставь API-ключ'), autocomplete: 'off' });
-  const saveKey = async () => { const v = keyInput.value.trim(); if (!v) return; const hint = await api.invoke('secrets:set', p.id, v); state.keyHints[p.id] = hint; keyInput.value = ''; keyInput.placeholder = `${tr('Saved', 'Сохранён')}: ${hint}`; toast(tr('Key saved to Keychain', 'Ключ сохранён в Связку ключей'), 'ok', 2000); };
-  keyInput.addEventListener('change', saveKey);
-  keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKey(); });
+// ---------- model card ----------
+const openModel = new Set();
+const PROTOCOLS = () => [['openai', tr('OpenAI-compatible', 'OpenAI-совместимый')], ['anthropic', 'Anthropic'], ['gemini', 'Gemini'], ['openai-responses', 'OpenAI Responses']];
+const AUTHS = () => [['bearer', 'Authorization: Bearer'], ['x-api-key', 'x-api-key'], ['both', 'x-api-key + Bearer'], ['goog', 'x-goog-api-key'], ['api-key', 'api-key (Azure)'], ['none', tr('none', 'без ключа')]];
+const detectProto = (u) => (/anthropic/i.test(u) ? 'anthropic' : /generativelanguage\.googleapis\.com/i.test(u) ? 'gemini' : 'openai');
+const authOf = (proto, u) => (proto === 'anthropic' ? (/api\.anthropic\.com/i.test(u) ? 'x-api-key' : 'both') : proto === 'gemini' ? 'goog' : 'bearer');
 
-  const result = h('div');
-  const testModel = h('select', { class: 'select', style: { width: '240px' } }, ...(p.models || []).map((m) => h('option', { value: m.id }, m.id)));
-  let testThink = false;
-  const fetchList = h('div');
+function modelCard(p, rerender) {
+  const m = (p.models || [])[0] || { id: '' };
+  const all = () => S().providers || [];
+  const put = async (patch, mpatch) => {
+    const cur = all().find((x) => x.id === p.id) || p;
+    let next = { ...cur, ...patch };
+    if (mpatch) {
+      let nm = { ...((cur.models || [])[0] || {}), ...mpatch };
+      if (mpatch.id !== undefined || patch.protocol) nm = await api.invoke('providers:normalize', { id: nm.id, name: nm.name, custom: true, contextWindow: nm.contextWindow, maxOutput: nm.maxOutput, vision: nm.vision, reasoningStyle: mpatch.reasoningStyle }, next);
+      next.models = [nm];
+      next.name = nm.name || nm.id;
+    }
+    await save({ providers: all().map((x) => (x.id === p.id ? next : x)) });
+    Object.assign(p, next);
+  };
+  const isDefault = S().defaultModel && S().defaultModel.providerId === p.id;
+  const keyHint = state.keyHints[p.id];
+  const title = h('div', { class: 'mc-title' }, m.name || m.id || tr('New model', 'Новая модель'));
+  const sub = h('div', { class: 'mc-sub mono' }, (p.baseUrl || tr('no endpoint', 'адрес не указан')).replace(/^https?:\/\//, ''));
+  const status = h('div', { class: 'mc-status' });
+  const testBtn = btn(tr('Test', 'Проверить'), { icon: 'plug', onclick: async (e) => {
+    e.stopPropagation();
+    const cur = (all().find((x) => x.id === p.id) || p);
+    const mid = ((cur.models || [])[0] || {}).id;
+    if (!mid) { status.className = 'mc-status err'; status.textContent = tr('Enter the model ID first', 'Сначала введи ID модели'); return; }
+    testBtn.disabled = true; status.className = 'mc-status'; status.replaceChildren(h('span', { class: 'spinner' }), tr(' Sending a test request…', ' Отправляю тестовый запрос…'));
+    try {
+      const r = await api.invoke('providers:test', p.id, mid, false);
+      status.className = `mc-status ${r.ok ? 'ok' : 'err'}`;
+      status.textContent = r.ok ? `${tr('Works', 'Работает')} · ${((r.firstTokenMs || r.ms) / 1000).toFixed(1)} ${tr('s', 'с')} · «${String(r.text || '').trim().slice(0, 60)}»` : String(r.error || 'Error').slice(0, 400);
+    } catch (err) { status.className = 'mc-status err'; status.textContent = err.message; }
+    testBtn.disabled = false;
+  } });
+  const body = h('div', { class: `mc-body ${openModel.has(p.id) || !m.id ? '' : 'hidden'}` });
+  const headEl = h('div', { class: 'mc-head' },
+    modelIcon(m, 34),
+    h('div', { class: 'grow', style: { minWidth: 0 } }, h('div', { class: 'row', style: { gap: '8px' } }, title, isDefault ? h('span', { class: 'mc-badge' }, tr('default', 'по умолчанию')) : null), sub),
+    testBtn,
+    iconBtn('trash', t('delete'), async (e) => {
+      e.stopPropagation();
+      if (!(await confirmDialog(tr('Delete model', 'Удалить модель'), m.name || m.id || '', t('delete'), true))) return;
+      await api.invoke('secrets:set', p.id, '');
+      const rest = all().filter((x) => x.id !== p.id);
+      const patch = { providers: rest };
+      if (isDefault) patch.defaultModel = rest[0] && rest[0].models[0] ? { providerId: rest[0].id, modelId: rest[0].models[0].id } : null;
+      await save(patch);
+      rerender();
+    }));
+  headEl.addEventListener('click', (e) => { if (e.target.closest('button')) return; body.classList.toggle('hidden'); if (body.classList.contains('hidden')) openModel.delete(p.id); else openModel.add(p.id); });
+
+  const idIn = h('input', { class: 'input big', value: m.id || '', placeholder: 'glm-5.2 · gpt-5.5 · claude-sonnet-5-5 · kimi-k3 …', spellcheck: 'false' });
+  idIn.addEventListener('change', async () => {
+    const v = idIn.value.trim();
+    await put({}, { id: v });
+    title.textContent = (p.models[0] && p.models[0].name) || v || tr('New model', 'Новая модель');
+    const ref = S().defaultModel;
+    if (!ref || ref.providerId === p.id) { await save({ defaultModel: { providerId: p.id, modelId: v } }); state.modelRef = { providerId: p.id, modelId: v }; }
+  });
+  const urlIn = h('input', { class: 'input big', value: p.baseUrl || '', placeholder: 'https://api.example.com/v1', spellcheck: 'false' });
+  const protoSel = select(PROTOCOLS(), p.protocol || 'openai', async (v) => { await put({ protocol: v, authStyle: authOf(v, urlIn.value) }, {}); rerender(); });
+  urlIn.addEventListener('change', async () => {
+    const u = urlIn.value.trim();
+    const proto = detectProto(u) === 'openai' && p.protocol === 'openai-responses' ? p.protocol : detectProto(u);
+    await put({ baseUrl: u, protocol: proto, authStyle: authOf(proto, u) }, {});
+    protoSel.value = proto; sub.textContent = u.replace(/^https?:\/\//, '');
+  });
+  const keyIn = h('input', { class: 'input big', type: 'password', autocomplete: 'off', placeholder: keyHint ? (keyHint.endsWith('↺') ? tr(`Same key as another model on this endpoint (${keyHint.replace(' ↺', '')})`, `Общий ключ с другой моделью на этом адресе (${keyHint.replace(' ↺', '')})`) : `${tr('Saved', 'Сохранён')}: ${keyHint}`) : tr('Paste the API key', 'Вставь API-ключ') });
+  keyIn.addEventListener('change', async () => {
+    const v = keyIn.value.trim(); if (!v) return;
+    const hint = await api.invoke('secrets:set', p.id, v); state.keyHints[p.id] = hint;
+    keyIn.value = ''; keyIn.placeholder = `${tr('Saved', 'Сохранён')}: ${hint}`;
+    toast(tr('Key saved', 'Ключ сохранён'), 'ok', 1500);
+  });
+  const nameIn = input(m.name && m.name !== m.id ? m.name : '', async (v) => { await put({}, { name: v.trim() }); title.textContent = v.trim() || m.id; }, { placeholder: tr('Optional — how it shows in the list', 'Необязательно — как показывать в списке') });
+
+  const more = h('div', { class: 'mc-more hidden' },
+    field(tr('Protocol', 'Протокол'), tr('Detected from the endpoint', 'Определяется по адресу'), protoSel),
+    field(tr('Key header', 'Заголовок ключа'), null, select(AUTHS(), p.authStyle || 'bearer', (v) => put({ authStyle: v }))),
+    field(tr('Context window', 'Контекст'), tr('tokens', 'токенов'), input(m.contextWindow, (v) => put({}, { contextWindow: v || 128000 }), { type: 'number', min: 1000, step: 1000 })),
+    field(tr('Max answer', 'Макс. ответ'), tr('tokens', 'токенов'), input(m.maxOutput, (v) => put({}, { maxOutput: v || 8192 }), { type: 'number', min: 256, step: 256 })),
+    field(tr('Reasoning', 'Размышления'), tr('How thinking is turned on for this model', 'Как включать размышления у этой модели'), select(REASONING_STYLES, m.reasoningStyle || 'none', (v) => put({}, { reasoningStyle: v }))),
+    field(tr('Images', 'Картинки'), tr('The model accepts images', 'Модель принимает картинки'), toggle(!!m.vision, (v) => put({}, { vision: v }))),
+    field(tr('Default', 'По умолчанию'), null, toggle(isDefault, async (v) => { if (v) { await save({ defaultModel: { providerId: p.id, modelId: (p.models[0] || {}).id } }); state.modelRef = S().defaultModel; rerender(); } })));
+  const moreBtn = h('button', { class: 'mc-more-btn', onclick: () => { more.classList.toggle('hidden'); moreBtn.classList.toggle('open'); } }, icon('chevron'), tr('More settings', 'Дополнительно'));
 
   body.append(
-    field(tr('Name', 'Название'), null, input(p.name, (v) => update({ name: v }))),
-    iconField(p, rerender),
-    field(tr('Protocol', 'Протокол'), null, select([['anthropic', 'Anthropic Messages'], ['openai', 'OpenAI Chat Completions'], ['openai-responses', 'OpenAI Responses'], ['gemini', 'Google Gemini']], p.protocol, (v) => update({ protocol: v }).then(rerender))),
-    field('Base URL', preset && preset.note ? preset.note : tr('Path like /v1/messages or /chat/completions is added automatically', 'Путь /v1/messages или /chat/completions добавляется автоматически'), input(p.baseUrl, (v) => update({ baseUrl: v.trim() }), { placeholder: 'https://…' })),
-    field('API key', preset && preset.keyUrl ? h('a', { onclick: () => api.invoke('app:open-external', preset.keyUrl) }, tr('Get a key ↗', 'Получить ключ ↗')) : null, h('div', { class: 'row' }, keyInput, btn(t('save'), { cls: 'sm', onclick: saveKey }), keyHint ? btn('', { cls: 'sm ghost', icon: 'trash', title: tr('Remove key', 'Удалить ключ'), onclick: async () => { await api.invoke('secrets:set', p.id, ''); state.keyHints[p.id] = ''; rerender(); } }) : null)),
-    field(tr('Auth header', 'Заголовок авторизации'), null, select([['x-api-key', 'x-api-key'], ['bearer', 'Authorization: Bearer'], ['both', 'x-api-key + Bearer'], ['api-key', 'api-key (Azure)'], ['goog', 'x-goog-api-key'], ['none', tr('none', 'нет')]], p.authStyle, (v) => update({ authStyle: v }))),
-    field(tr('Extra headers', 'Доп. заголовки'), 'JSON', textarea(JSON.stringify(p.headers || {}, null, 2), (v) => { try { update({ headers: JSON.parse(v || '{}') }); } catch { toast('Invalid JSON', 'error'); } }, 3), true),
-    field(tr('Query string', 'Параметры URL'), tr('Appended to every request, e.g. api-version=…', 'Добавляется к каждому запросу, напр. api-version=…'), input(p.query, (v) => update({ query: v.trim() }), { placeholder: 'api-version=2025-04-01-preview' })),
-    p.protocol === 'openai' ? field(tr('Echo reasoning_content', 'Возвращать reasoning_content'), tr('Needed by DeepSeek/Kimi/GLM thinking with tools', 'Нужно для DeepSeek/Kimi/GLM с размышлениями и инструментами'), toggle(!!p.echoReasoning, (v) => update({ echoReasoning: v }))) : null,
-    p.protocol === 'openai' ? field('stream_options.include_usage', null, toggle(p.streamUsage !== false, (v) => update({ streamUsage: v }))) : null,
-    p.protocol === 'openai' ? field(tr('Max tokens field', 'Поле лимита токенов'), null, select([['max_tokens', 'max_tokens'], ['max_completion_tokens', 'max_completion_tokens'], ['none', tr('don\'t send', 'не отправлять')]], p.maxTokensField || 'max_tokens', (v) => update({ maxTokensField: v }))) : null,
-    p.protocol === 'anthropic' ? field(tr('Prompt caching', 'Кэширование промпта'), 'cache_control: ephemeral', toggle(!!p.promptCaching, (v) => update({ promptCaching: v }))) : null,
-    h('div', { class: 'group-title' }, tr('Test', 'Проверка')),
-    h('div', { class: 'row', style: { flexWrap: 'wrap' } }, testModel,
-      h('label', { class: 'check' }, toggle(false, (v) => { testThink = v; }), t('reasoning')),
-      btn(tr('Test connection', 'Проверить подключение'), { cls: 'sm primary', icon: 'plug', onclick: async (e) => {
-        const b = e.currentTarget; b.disabled = true; clear(result); result.append(h('div', { class: 'test-result' }, '…'));
-        try {
-          const r = await api.invoke('providers:test', p.id, testModel.value || ((p.models || [])[0] || {}).id, testThink);
-          clear(result);
-          result.append(h('div', { class: `test-result ${r.ok ? 'ok' : 'bad'}` },
-            r.ok ? `✓ ${r.ms} ms (first token ${r.firstTokenMs} ms)\n→ ${r.text || '(empty text)'}${r.reasoning ? '\nreasoning: ' + r.reasoning.slice(0, 400) : ''}${r.usage ? '\nusage: ' + JSON.stringify(r.usage) : ''}` : `✗ ${r.error}`,
-            r.request ? h('div', { style: { marginTop: '8px' } }, h('a', { onclick: () => modal({ title: 'Request', body: jsonHighlight(r.request), size: 'md' }) }, tr('show exact request', 'показать точный запрос'))) : null));
-        } catch (err) { clear(result); result.append(h('div', { class: 'test-result bad' }, err.message)); }
-        b.disabled = false;
-      } })),
-    result,
-    h('div', { class: 'group-title' }, tr('Models', 'Модели')),
-    modelsTable(p, update, rerender),
-    h('div', { class: 'row', style: { marginTop: '10px', flexWrap: 'wrap' } },
-      btn(tr('Add from catalog', 'Добавить из каталога'), { cls: 'sm primary', icon: 'layers', onclick: async (e) => {
-        const b = e.currentTarget; b.disabled = true;
-        try { const list = await api.invoke('providers:catalog', p.id); renderCatalog(fetchList, p, list, update, rerender); }
-        catch (err) { toast(err.message, 'error', 8000); }
-        b.disabled = false;
-      } }),
-      btn(tr('Fetch models from API', 'Загрузить модели из API'), { cls: 'sm', icon: 'download', onclick: async (e) => {
-        const b = e.currentTarget; b.disabled = true;
-        try { const list = await api.invoke('providers:models', p.id); renderFetched(fetchList, p, list, update, rerender); }
-        catch (err) { toast(err.message, 'error', 8000); }
-        b.disabled = false;
-      } }),
-      btn(tr('Add custom model', 'Добавить свою модель'), { cls: 'sm', icon: 'plus', onclick: async () => {
-        const id = await promptDialog(tr('Model ID', 'ID модели'), 'e.g. glm-5.2, gpt-5, claude-sonnet-5-5, deepseek-chat');
-        if (!id) return;
-        const models = [...(p.models || []), { id: id.trim(), name: id.trim(), custom: true, contextWindow: 128000, maxOutput: 8192, vision: false, tools: true, reasoningStyle: p.defaultReasoning || (p.protocol === 'anthropic' ? 'anthropic-budget' : p.protocol === 'gemini' ? 'gemini' : 'none'), reasoningBudget: 8000, temperature: null, extraBody: {}, enabled: true }];
-        await update({ models }); rerender();
-      } }),
-      h('span', { class: 'grow' }),
-      btn(tr('Delete provider', 'Удалить провайдера'), { cls: 'sm danger ghost', icon: 'trash', onclick: async () => { if (await confirmDialog(t('delete'), p.name, t('delete'), true)) { await api.invoke('secrets:set', p.id, ''); await save({ providers: providers().filter((x) => x.id !== p.id) }); rerender(); } } })),
-    fetchList);
-  return h('div', { class: 'card prov-card' }, headEl, body);
-}
-
-function modelsTable(p, update, rerender) {
-  const models = p.models || [];
-  if (!models.length) return h('div', { class: 'muted', style: { padding: '8px 0' } }, tr('No models — fetch from the API or add one.', 'Нет моделей — загрузи из API или добавь.'));
-  const setModel = (i, patch) => { const list = models.map((m, j) => (j === i ? { ...m, ...patch } : m)); return update({ models: list }); };
-  const tb = h('tbody');
-  models.forEach((m, i) => {
-    const adv = h('tr', { class: 'hidden' }, h('td', { colspan: 8 },
-      h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '14px', padding: '6px 0' } },
-        h('label', { class: 'check' }, 'temperature', input(m.temperature, (v) => setModel(i, { temperature: v === '' || v == null ? null : +v }), { type: 'number', step: '0.1', style: { width: '80px' }, placeholder: 'default' })),
-        h('label', { class: 'check' }, 'budget', input(m.reasoningBudget || 8000, (v) => setModel(i, { reasoningBudget: v || 8000 }), { type: 'number', style: { width: '100px' } })),
-        h('label', { class: 'check' }, toggle(m.tools !== false, (v) => setModel(i, { tools: v })), 'tools'),
-        h('label', { class: 'check', title: tr('USD per 1M tokens', 'USD за 1M токенов') }, '$ in', input(m.price && m.price.input, (v) => setModel(i, { price: { ...(m.price || {}), input: v == null ? 0 : +v } }), { type: 'number', step: '0.01', style: { width: '74px' } })),
-        h('label', { class: 'check' }, '$ out', input(m.price && m.price.output, (v) => setModel(i, { price: { ...(m.price || {}), output: v == null ? 0 : +v } }), { type: 'number', step: '0.01', style: { width: '74px' } })),
-        h('label', { class: 'check' }, '$ cache', input(m.price && m.price.cacheRead, (v) => setModel(i, { price: { ...(m.price || {}), cacheRead: v == null ? null : +v } }), { type: 'number', step: '0.01', style: { width: '74px' } }))),
-      h('div', { class: 'hint', style: { margin: '4px 0' } }, tr('Extra body (JSON, deep-merged into every request; null removes a key)', 'Доп. тело запроса (JSON, сливается с каждым запросом; null удаляет ключ)')),
-      textarea(JSON.stringify(m.extraBody || {}, null, 2), (v) => { try { setModel(i, { extraBody: JSON.parse(v || '{}') }); } catch { toast('Invalid JSON', 'error'); } }, 3)));
-    tb.append(h('tr', null,
-      h('td', null, toggle(m.enabled !== false, (v) => setModel(i, { enabled: v }))),
-      h('td', null, h('div', { class: 'row', style: { gap: '6px', flexWrap: 'nowrap' } }, modelIcon(m, 16), input(m.id, (v) => setModel(i, { id: v.trim() }), { style: { minWidth: '150px' } }))),
-      h('td', null, input(m.name, (v) => setModel(i, { name: v }))),
-      h('td', null, input(m.contextWindow, (v) => setModel(i, { contextWindow: v || 128000 }), { type: 'number', style: { width: '90px' } })),
-      h('td', null, input(m.maxOutput, (v) => setModel(i, { maxOutput: v || 8192 }), { type: 'number', style: { width: '80px' } })),
-      h('td', null, select(REASONING_STYLES, m.reasoningStyle || 'none', (v) => setModel(i, { reasoningStyle: v }))),
-      h('td', { title: 'vision' }, toggle(!!m.vision, (v) => setModel(i, { vision: v }))),
-      h('td', { style: { whiteSpace: 'nowrap' } }, iconBtn('settings', tr('Advanced', 'Дополнительно'), () => adv.classList.toggle('hidden'), 'sm'), iconBtn('trash', t('delete'), () => update({ models: models.filter((_, j) => j !== i) }).then(rerender), 'sm'))));
-    tb.append(adv);
-  });
-  return h('div', { style: { overflowX: 'auto' } }, h('table', { class: 'model-table' }, h('thead', null, h('tr', null, ...['on', 'id', tr('name', 'имя'), 'context', 'max out', 'reasoning', 'vision', ''].map((c) => h('th', null, c)))), tb));
-}
-
-// Image file → 128px PNG data URL.
-function pickImage() {
-  return new Promise((resolve) => {
-    const inp = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
-    inp.addEventListener('change', () => {
-      const f = inp.files && inp.files[0];
-      inp.remove();
-      if (!f) return resolve(null);
-      const url = URL.createObjectURL(f);
-      const img = new Image();
-      img.onload = () => {
-        const c = document.createElement('canvas'); c.width = c.height = 128;
-        const k = Math.min(128 / img.width, 128 / img.height);
-        const w = img.width * k, hh = img.height * k;
-        c.getContext('2d').drawImage(img, (128 - w) / 2, (128 - hh) / 2, w, hh);
-        URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/png'));
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
-      img.src = url;
-    });
-    document.body.append(inp);
-    inp.click();
-  });
-}
-
-// Provider icon: the vendor's real site icon (auto), or any picture you choose.
-function iconField(p, rerender) {
-  const vend = vendorOfProvider(p);
-  if (!vend) return null;
-  const own = (S().iconOverrides || {})[vend];
-  const setOwn = async (dataUrl) => {
-    const next = { ...(S().iconOverrides || {}) };
-    if (dataUrl) next[vend] = dataUrl; else delete next[vend];
-    await new Promise((r) => emit('save-settings-replace', 'iconOverrides', next, r));
-    resetVendorIcons(); rerender();
-  };
-  const v = state.info.vendors && state.info.vendors[vend];
-  return field(tr('Icon', 'Иконка'),
-    own ? tr('Your picture — used for every model of this company', 'Твоя картинка — для всех моделей этой компании')
-      : tr(`Loaded from ${v ? v.domain : 'the vendor site'} automatically`, `Загружается с ${v ? v.domain : 'сайта компании'} автоматически`),
-    h('div', { class: 'row' }, vendorIcon(vend, { size: 32 }),
-      btn(tr('Choose picture…', 'Выбрать картинку…'), { cls: 'sm', icon: 'image', onclick: async () => { const d = await pickImage(); if (d) setOwn(d); } }),
-      own ? btn(tr('Back to site icon', 'Вернуть с сайта'), { cls: 'sm ghost', onclick: () => setOwn(null) }) : null));
-}
-
-const fmtCtx = (n) => (!n ? '' : n >= 1e6 ? `${+(n / 1048576).toFixed(n % 1048576 ? 2 : 0) || +(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}K`);
-const fmtPrice = (pr) => (!pr ? '' : pr.input === 0 && pr.output === 0 ? 'free' : `$${pr.input} / $${pr.output}`);
-
-// Built-in catalog: every current model of this provider's family, grouped by vendor, one click to add.
-function renderCatalog(host, p, list, update, rerender) {
-  clear(host);
-  const cur = () => (S().providers.find((x) => x.id === p.id) || p).models || [];
-  const have = new Set(cur().map((m) => m.id));
-  if (!list.length) {
-    host.append(h('div', { class: 'muted', style: { padding: '10px 0' } }, tr('No built-in catalog for this provider — use "Fetch models from API".', 'Для этого провайдера нет встроенного каталога — используй «Загрузить модели из API».')));
-    return;
-  }
-  const q = h('input', { class: 'input', placeholder: tr(`Search ${list.length} models`, `Поиск по ${list.length} моделям`), style: { margin: '10px 0 6px' } });
-  const showLegacy = { v: false };
-  const rows = h('div', { class: 'catalog' });
-  const add = async (models) => {
-    const fresh = models.filter((m) => !have.has(m.id));
-    if (!fresh.length) return;
-    await update({ models: [...cur(), ...fresh] });
-    fresh.forEach((m) => have.add(m.id));
-    render();
-  };
-  const visible = () => {
-    const f = q.value.toLowerCase();
-    return list.filter((m) => (showLegacy.v || !m.legacy || f) && (!f || `${m.id} ${m.name} ${m.vendor}`.toLowerCase().includes(f)));
-  };
-  const render = () => {
-    clear(rows);
-    let lastVendor = null;
-    for (const m of visible()) {
-      const vend = m.vendor || vendorOfModel(m);
-      if (vend !== lastVendor && p.preset === 'openrouter') {
-        const v = state.info.vendors && state.info.vendors[vend];
-        rows.append(h('div', { class: 'cat-head' }, vendorIcon(vend, { size: 14 }), v ? v.name : vend));
-        lastVendor = vend;
-      }
-      const tags = [
-        m.vision ? h('span', { class: 'cat-tag' }, 'vision') : null,
-        m.reasoningStyle && m.reasoningStyle !== 'none' ? h('span', { class: 'cat-tag' }, tr('reasoning', 'reasoning')) : null,
-        m.legacy ? h('span', { class: 'cat-tag dim' }, tr('older', 'старая')) : null,
-      ].filter(Boolean);
-      rows.append(h('div', { class: 'cat-row' },
-        modelIcon(m, 20),
-        h('div', { class: 'grow', style: { minWidth: 0 } },
-          h('div', { class: 'cat-name' }, m.name, ...tags),
-          h('div', { class: 'cat-sub mono ellipsis' }, m.id)),
-        h('span', { class: 'cat-meta mono' }, fmtCtx(m.contextWindow)),
-        h('span', { class: 'cat-meta mono', title: tr('USD per 1M tokens: input / output', 'USD за 1M токенов: вход / выход') }, fmtPrice(m.price)),
-        have.has(m.id) ? h('span', { class: 'cat-have' }, icon('check')) : btn(tr('Add', 'Добавить'), { cls: 'sm', onclick: () => add([m]) })));
-    }
-  };
-  q.addEventListener('input', render);
-  host.append(
-    h('div', { class: 'row', style: { flexWrap: 'wrap' } }, q,
-      h('label', { class: 'check' }, toggle(false, (v) => { showLegacy.v = v; render(); }), tr('older models', 'старые модели')),
-      btn(tr('Add all shown', 'Добавить все'), { cls: 'sm', onclick: () => add(visible()).then(rerender) }),
-      btn(tr('Done', 'Готово'), { cls: 'sm primary', onclick: () => rerender() })),
-    rows);
-  render();
-}
-
-function renderFetched(host, p, list, update, rerender) {
-  clear(host);
-  const have = new Set((p.models || []).map((m) => m.id));
-  const q = h('input', { class: 'input', placeholder: tr(`Filter ${list.length} models`, `Фильтр по ${list.length} моделям`), style: { margin: '10px 0 6px' } });
-  const rows = h('div', { style: { maxHeight: '300px', overflow: 'auto', border: '1px solid var(--line)', borderRadius: '12px' } });
-  const render = () => {
-    clear(rows);
-    const f = q.value.toLowerCase();
-    for (const m of list.filter((x) => !f || x.id.toLowerCase().includes(f)).slice(0, 400)) {
-      rows.append(h('div', { class: 'scm-file', style: { height: '30px', padding: '0 10px', gap: '8px' } }, modelIcon(m, 14), h('span', { class: 'mono ellipsis grow', style: { fontSize: '12px' } }, m.id), m.contextWindow ? h('span', { class: 'muted mono', style: { fontSize: '11px' } }, `${Math.round(m.contextWindow / 1000)}k`) : null,
-        have.has(m.id) ? h('span', { class: 'muted', style: { fontSize: '11px', width: '60px', textAlign: 'right' } }, '✓') : btn(tr('Add', 'Добавить'), { cls: 'sm', onclick: async () => { await update({ models: [...(S().providers.find((x) => x.id === p.id).models || []), m] }); have.add(m.id); render(); } })));
-    }
-  };
-  q.addEventListener('input', render);
-  host.append(h('div', { class: 'row' }, q, btn(tr('Add all shown', 'Добавить все'), { cls: 'sm', onclick: async () => { const f = q.value.toLowerCase(); const add = list.filter((x) => (!f || x.id.toLowerCase().includes(f)) && !have.has(x.id)); await update({ models: [...(p.models || []), ...add] }); rerender(); } }), btn(tr('Done', 'Готово'), { cls: 'sm primary', onclick: () => rerender() })), rows);
-  render();
+    field(tr('Model ID', 'ID модели'), tr('Exactly as the API expects it', 'Точно как его ждёт API'), idIn),
+    field(tr('Endpoint', 'Адрес API'), tr('Base URL, e.g. …/v1', 'Базовый адрес, например …/v1'), urlIn),
+    field(tr('API key', 'API-ключ'), tr('Stored encrypted on this computer', 'Хранится зашифрованным на этом компьютере'), keyIn),
+    field(tr('Name', 'Название'), null, nameIn),
+    moreBtn, more, status);
+  if (!m.id) setTimeout(() => idIn.focus(), 30);
+  return h('div', { class: 'card mc' }, headEl, body);
 }
 
 // ---------- MCP server editor ----------

@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const INVOKE = new Set([
   'app:info', 'app:set-dirty', 'app:open-external', 'app:reveal', 'app:open-path', 'app:pick-images', 'app:read-image', 'app:pick-files', 'app:capture-screen',
   'auth:status', 'auth:register', 'auth:login', 'auth:recover', 'auth:logout', 'auth:update', 'auth:change-password', 'auth:change-word', 'auth:delete',
-  'settings:get', 'settings:set', 'secrets:set', 'providers:new', 'providers:models', 'providers:test', 'providers:catalog', 'icons:get', 'icons:clear', 'icons:refresh',
+  'settings:get', 'settings:set', 'secrets:set', 'providers:new', 'providers:models', 'providers:test', 'icons:get', 'icons:clear', 'icons:refresh',
   'ws:pick-folder', 'ws:open', 'ws:close', 'ws:root', 'ws:readdir', 'ws:read', 'ws:write', 'ws:create-file', 'ws:create-dir',
   'ws:rename', 'ws:delete', 'ws:list-files', 'ws:search', 'ws:replace', 'ws:folder-summary', 'ws:exists', 'ws:describe-file',
   'term:create', 'term:kill',
@@ -22,10 +22,10 @@ const INVOKE = new Set([
   'lint:run', 'review:run', 'ai:next-edit', 'index:status', 'index:build', 'index:remove', 'index:search',
   'docs:list', 'docs:add', 'docs:reindex', 'docs:remove', 'memory:get', 'memory:save', 'hooks:list',
   'usage:summary', 'usage:clear', 'themes:list', 'themes:load', 'themes:pick-file', 'keys:import',
-  'automations:run-now', 'automations:pick-folder', 'browser:show', 'update:check',
+  'automations:run-now', 'automations:pick-folder', 'browser:show', 'update:check', 'update:install', 'providers:custom', 'providers:normalize',
 ]);
 const SEND = new Set(['term:write', 'term:resize']);
-const EVENTS = new Set(['agent:event', 'ai:event', 'term:data', 'term:exit', 'ws:changed', 'ws:file-changed', 'mcp:changed', 'plugins:changed', 'requestlog:entry', 'menu', 'settings:changed', 'index:progress', 'docs:progress', 'usage:entry', 'chat:updated']);
+const EVENTS = new Set(['agent:event', 'ai:event', 'term:data', 'term:exit', 'ws:changed', 'ws:file-changed', 'mcp:changed', 'plugins:changed', 'requestlog:entry', 'menu', 'settings:changed', 'index:progress', 'docs:progress', 'usage:entry', 'update:progress', 'chat:updated']);
 
 // On Windows the renderer works with forward-slash paths (C:/Users/…); Node accepts both.
 const WIN = process.platform === 'win32';

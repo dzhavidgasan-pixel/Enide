@@ -478,39 +478,28 @@ await test('"ask every time": allow-listed command still asks; user edits it; re
 });
 
 console.log('\nmodel catalog · vendor icons');
-await test('every preset family ships a catalog; Kimi has K2.6, K2.7 Code, K3', async () => {
-  const { catalogForProvider } = require('../electron/agent/providers.js');
-  const kimi = providerFromPreset('moonshot');
-  const ids = kimi.models.map((m) => m.id);
-  for (const id of ['kimi-k2.6', 'kimi-k2.7-code', 'kimi-k3', 'kimi-k3.1-pro']) assert.ok(ids.includes(id), id);
-  assert.ok(kimi.models.every((m) => m.vendor === 'moonshot'));
-  assert.equal(kimi.models.find((m) => m.id === 'kimi-k3').reasoningStyle, 'kimi-effort');
-  for (const pr of ['anthropic', 'openai', 'gemini', 'zai-anthropic', 'zai-openai', 'moonshot-anthropic', 'deepseek', 'qwen', 'xai', 'mistral', 'minimax', 'openrouter', 'ollama']) {
-    assert.ok(providerFromPreset(pr).models.length > 0, pr);
-  }
-  const zai = providerFromPreset('zai-anthropic');
-  assert.ok(zai.models.find((m) => m.id === 'glm-5.2' && m.enabled));
-  assert.ok(zai.models.find((m) => m.id === 'glm-4.5-air' && !m.enabled), 'older models come disabled');
-  assert.ok(catalogForProvider({ preset: 'custom-openai', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1' }).length >= 6, 'guessed from base URL');
-  const or = providerFromPreset('openrouter');
-  assert.ok(or.models.every((m) => m.id.includes('/')), 'openrouter ids are vendor-prefixed');
+await test('custom model: ID + endpoint → protocol, key header and reasoning are guessed; no built-in lists', async () => {
+  const { customModel } = require('../electron/agent/providers.js');
+  assert.equal(providerFromPreset('moonshot').models.length, 0, 'presets carry no models');
+  const z = customModel({ modelId: 'glm-5.2', baseUrl: 'https://api.z.ai/api/anthropic' });
+  assert.equal(z.protocol, 'anthropic'); assert.equal(z.authStyle, 'both'); assert.equal(z.models[0].reasoningStyle, 'anthropic-budget');
+  const a = customModel({ modelId: 'claude-sonnet-5-5', baseUrl: 'https://api.anthropic.com' });
+  assert.equal(a.authStyle, 'x-api-key'); assert.equal(a.models[0].reasoningStyle, 'anthropic-adaptive');
+  const k = customModel({ modelId: 'kimi-k3', baseUrl: 'https://api.moonshot.ai/v1' });
+  assert.equal(k.protocol, 'openai'); assert.equal(k.authStyle, 'bearer'); assert.equal(k.models[0].reasoningStyle, 'kimi-effort');
+  assert.equal(customModel({ modelId: 'qwen3.7-plus', baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1' }).models[0].reasoningStyle, 'enable-thinking');
+  assert.equal(customModel({ modelId: 'gemini-3.8-flash', baseUrl: 'https://generativelanguage.googleapis.com' }).authStyle, 'goog');
+  assert.equal(customModel({ modelId: 'llama3.3', baseUrl: 'http://localhost:11434/v1' }).models[0].reasoningStyle, 'none');
 });
 await test('kimi-effort maps reasoning to low/high/max', async () => {
   const { buildRequest } = require('../electron/agent/openai.js');
-  const p = providerFromPreset('moonshot');
-  const model = p.models.find((m) => m.id === 'kimi-k3');
+  const { customModel } = require('../electron/agent/providers.js');
+  const p = customModel({ modelId: 'kimi-k3', baseUrl: 'https://api.moonshot.ai/v1' });
+  const model = p.models[0];
   const body = (r) => buildRequest({ provider: p, model, system: '', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], tools: [], reasoning: r, maxTokens: 10 }).body.reasoning_effort;
   assert.equal(body({ enabled: true, effort: 'medium' }), 'high');
   assert.equal(body({ enabled: true, effort: 'max' }), 'max');
   assert.equal(body({ enabled: false }), 'low');
-});
-await test('fetched models are enriched with catalog names and prices', async () => {
-  const p = { ...providerFromPreset('moonshot'), baseUrl: mock.url + '/kimi' };
-  const f = async (url) => ({ ok: true, json: async () => ({ data: [{ id: 'kimi-k2.6' }, { id: 'kimi-k9-future' }] }) });
-  const list = await listModels({ provider: p, apiKey: 'k', fetchImpl: f });
-  const k = list.find((m) => m.id === 'kimi-k2.6');
-  assert.equal(k.name, 'Kimi K2.6'); assert.equal(k.price.input, 0.95); assert.equal(k.contextWindow, 262144);
-  assert.equal(list.find((m) => m.id === 'kimi-k9-future').vendor, 'moonshot');
 });
 await test('vendor icons: real favicon from the vendor site, cached on disk', async () => {
   const { VendorIcons } = require('../electron/icons.js');

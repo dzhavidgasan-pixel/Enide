@@ -9,7 +9,7 @@ const anthropic = require('./anthropic');
 const openai = require('./openai');
 const gemini = require('./gemini');
 const responses = require('./responses');
-const { catalogFor, vendorOf, VENDORS, PRESET_VENDORS } = require('./catalog');
+const { vendorOf, VENDORS } = require('../vendors');
 
 const ADAPTERS = { anthropic, openai, gemini, 'openai-responses': responses };
 
@@ -74,29 +74,35 @@ function providerFromPreset(presetId, id) {
     maxTokensField: p.maxTokensField || 'max_tokens',
     defaultReasoning: p.defaultReasoning || null,
     enabled: true,
-    models: catalogModels(p.preset, p),
+    models: [],
   };
 }
 
-// Built-in catalog models for a preset; older generations come disabled (one click to turn on).
-function catalogModels(presetId, provider) {
-  return catalogFor(presetId, provider.protocol).map((m) => normalizeModel({ ...m, enabled: !m.legacy }, provider));
+// A model the user adds: just an ID, an endpoint and a protocol. Everything else is guessed
+// from those and can be changed under "More".
+function customModel({ id, modelId = '', name = '', baseUrl = '', protocol }) {
+  const proto = protocol || detectProtocol(baseUrl);
+  const p = {
+    id: id || `m-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+    preset: 'custom', name: name || modelId || '', protocol: proto, baseUrl,
+    authStyle: authFor(proto, baseUrl), headers: {}, query: '', echoReasoning: true, streamUsage: true,
+    promptCaching: false, maxTokensField: 'max_tokens', defaultReasoning: null, enabled: true, models: [],
+  };
+  p.models = [normalizeModel({ id: modelId, name, custom: true }, p)];
+  return p;
 }
 
-// Catalog for an existing provider (Settings → "Add from catalog"). Falls back to the vendor
-// guessed from the base URL for custom providers.
-function catalogForProvider(provider) {
-  let preset = provider.preset;
-  if (!PRESET_VENDORS[preset]) {
-    const u = String(provider.baseUrl || '');
-    preset = /moonshot|kimi/.test(u) ? (provider.protocol === 'anthropic' ? 'moonshot-anthropic' : 'moonshot')
-      : /z\.ai|bigmodel/.test(u) ? (provider.protocol === 'anthropic' ? 'zai-anthropic' : 'zai-openai')
-      : /deepseek/.test(u) ? 'deepseek' : /dashscope|aliyun/.test(u) ? 'qwen' : /minimax/.test(u) ? 'minimax'
-      : /x\.ai/.test(u) ? 'xai' : /mistral/.test(u) ? 'mistral' : /openrouter/.test(u) ? 'openrouter'
-      : /anthropic\.com/.test(u) ? 'anthropic' : /openai\.com/.test(u) ? 'openai' : /googleapis/.test(u) ? 'gemini'
-      : /11434|1234/.test(u) ? 'ollama' : null;
-  }
-  return preset ? catalogModels(preset, provider) : [];
+// Endpoint → protocol: …/anthropic or anthropic.com → Anthropic Messages, Google → Gemini, else OpenAI-compatible.
+function detectProtocol(url) {
+  const u = String(url || '').toLowerCase();
+  if (/anthropic/.test(u)) return 'anthropic';
+  if (/generativelanguage\.googleapis\.com/.test(u)) return 'gemini';
+  return 'openai';
+}
+function authFor(protocol, url) {
+  if (protocol === 'anthropic') return /api\.anthropic\.com/.test(String(url)) ? 'x-api-key' : 'both';
+  if (protocol === 'gemini') return 'goog';
+  return 'bearer';
 }
 
 // Sensible per-model defaults. Everything is visible and editable in Settings → Models.
@@ -115,6 +121,14 @@ function guessReasoningStyle(provider, id) {
     if (provider.defaultReasoning === 'openai-effort' && !/^(o\d|gpt-5|gpt-6|gpt-oss)/.test(m)) return 'none';
     return provider.defaultReasoning;
   }
+  // custom OpenAI-compatible endpoints: guess from the model ID
+  const bare = m.replace(/^[\w.-]+\//, '');
+  if (/^(o\d|gpt-5|gpt-6|gpt-oss)/.test(bare)) return 'openai-effort';
+  if (/^kimi-k3/.test(bare)) return 'kimi-effort';
+  if (/^(glm-[45]|kimi-k2|deepseek-v3\.[1-9]|deepseek-v4)/.test(bare)) return 'thinking-object';
+  if (/^qwen3/.test(bare)) return 'enable-thinking';
+  if (/^grok-[34]/.test(bare)) return 'openai-effort';
+  if (/\//.test(m) && /openrouter/.test(String(provider.baseUrl))) return 'openrouter';
   return 'none';
 }
 
@@ -180,11 +194,7 @@ async function listModels({ provider, apiKey, fetchImpl }) {
       maxOutput: m.max_output_tokens || (m.top_provider && m.top_provider.max_completion_tokens) || undefined,
     })).filter((m) => m.id);
   }
-  const known = new Map(catalogForProvider(provider).map((m) => [m.id, m]));
-  return ids.map((m) => {
-    const c = known.get(m.id);
-    return normalizeModel(c ? { ...c, ...Object.fromEntries(Object.entries(m).filter(([, v]) => v != null)), name: c.name, enabled: true } : m, provider);
-  });
+  return ids.map((m) => normalizeModel(m, provider));
 }
 
 // Fire one tiny real request and report what came back (used by "Test connection").
@@ -218,6 +228,6 @@ async function testConnection({ provider, apiKey, model, fetchImpl, reasoning })
 }
 
 module.exports = {
-  PRESETS, presetById, providerFromPreset, normalizeModel, guessReasoningStyle, catalogForProvider, VENDORS, vendorOf,
+  PRESETS, presetById, providerFromPreset, customModel, detectProtocol, authFor, normalizeModel, guessReasoningStyle, VENDORS, vendorOf,
   authHeaders, redactHeaders, adapterFor, listModels, testConnection,
 };
