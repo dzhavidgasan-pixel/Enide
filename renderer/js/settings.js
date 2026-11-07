@@ -23,22 +23,22 @@ const REASONING_STYLES = [
 
 let open = null;
 
-export function openSettings(section = 'providers') {
+// Settings = one page: API, models, system prompt, basics. Account and plugins open as sub-pages.
+export function openSettings(section = 'home') {
   if (open) { open.go(section); return; }
-  const nav = h('div', { class: 'set-nav' }, h('div', { class: 'brand wordmark' }, 'En', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'));
   const main = h('div', { class: 'set-main selectable' });
   const close = () => { ov.remove(); document.removeEventListener('keydown', esc, true); open = null; };
   const esc = (e) => { if (e.key === 'Escape' && !document.querySelector('.menu')) { e.stopPropagation(); close(); } };
-  const m = h('div', { class: 'modal' }, nav, main, h('div', { class: 'set-close' }, iconBtn('x', 'Close', close)));
+  const m = h('div', { class: 'modal set-modal' }, main, h('div', { class: 'set-close' }, iconBtn('x', tr('Close', 'Закрыть'), close)));
   const ov = h('div', { class: 'overlay', onmousedown: (e) => { if (e.target === ov) close(); } }, m);
   document.getElementById('overlays').append(ov);
   document.addEventListener('keydown', esc, true);
   const go = (id) => {
-    clear(nav); nav.append(h('div', { class: 'brand wordmark' }, 'En', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'));
-    for (const [sid, ic, label] of SECTIONS) nav.append(h('button', { class: sid === id ? 'on' : '', onclick: () => go(sid) }, icon(ic), label()));
+    const page = ['account', 'plugins'].includes(id) ? id : 'home';
     clear(main);
     main.scrollTop = 0;
-    (RENDER[id] || RENDER.providers)(main, () => go(id));
+    if (page !== 'home') main.append(h('button', { class: 'set-back', onclick: () => go('home') }, icon('chevron'), tr('Settings', 'Настройки')));
+    RENDER[page](main, () => go(page));
   };
   open = { go, close };
   go(section);
@@ -96,7 +96,91 @@ function secretForm(fields, label, onsubmit, danger) {
   return h('div', { class: 'acc-form' }, h('div', { class: 'row', style: { flexWrap: 'wrap' } }, ...inputs, b), msg);
 }
 
+const applyResult = (r) => emit('apply-settings', r && r.settings && r.keyHints ? r : r && r.settings ? r.settings : r);
+
+function sectionTitle(text, sub) {
+  return h('div', { class: 'set-sec' }, h('h2', null, text), sub ? h('p', null, sub) : null);
+}
+
+function homePage(main, rerender) {
+  const api0 = (S().providers || []).find((p) => p.id === 'api') || { models: [] };
+  main.append(h('h1', { class: 'set-h1' }, tr('Settings', 'Настройки')));
+
+  // --- API ---
+  main.append(sectionTitle('API', tr('Paste your API endpoint and key — every model below goes through it.', 'Вставь адрес API и ключ — все модели ниже работают через него.')));
+  const url = h('input', { class: 'input', value: api0.baseUrl || '', placeholder: 'https://api.example.com/v1', spellcheck: 'false' });
+  const keyHint = state.keyHints.api;
+  const key = h('input', { class: 'input', type: 'password', autocomplete: 'off', placeholder: keyHint ? `${tr('Saved', 'Сохранён')}: ${keyHint}` : tr('API key', 'API-ключ') });
+  const proto = h('span', { class: 'set-tag' }, { openai: tr('OpenAI-compatible', 'OpenAI-совместимый'), anthropic: 'Anthropic', gemini: 'Gemini', 'openai-responses': 'OpenAI Responses' }[api0.protocol] || '—');
+  const st = h('div', { class: 'set-status' });
+  url.addEventListener('change', async () => { applyResult(await api.invoke('api:set', { baseUrl: url.value.trim() })); rerender(); });
+  key.addEventListener('change', async () => {
+    const v = key.value.trim(); if (!v) return;
+    state.keyHints.api = await api.invoke('secrets:set', 'api', v);
+    key.value = ''; key.placeholder = `${tr('Saved', 'Сохранён')}: ${state.keyHints.api}`;
+    toast(tr('Key saved', 'Ключ сохранён'), 'ok', 1400);
+  });
+  const testBtn = btn(tr('Test', 'Проверить'), { onclick: async () => {
+    const mid = (state.modelRef && state.modelRef.modelId) || 'claude-sonnet-5-5';
+    testBtn.disabled = true; st.className = 'set-status'; st.replaceChildren(h('span', { class: 'spinner' }), ` ${mid}…`);
+    try {
+      const r = await api.invoke('providers:test', 'api', mid, false);
+      st.className = `set-status ${r.ok ? 'ok' : 'err'}`;
+      st.textContent = r.ok ? `${mid} — ${tr('works', 'работает')}, ${((r.firstTokenMs || r.ms) / 1000).toFixed(1)} ${tr('s', 'с')}` : `${mid}: ${String(r.error || '').slice(0, 300)}`;
+    } catch (e) { st.className = 'set-status err'; st.textContent = e.message; }
+    testBtn.disabled = false;
+  } });
+  main.append(h('div', { class: 'set-grid' },
+    h('label', null, tr('Endpoint', 'Адрес')), h('div', { class: 'set-row' }, url, proto),
+    h('label', null, tr('Key', 'Ключ')), h('div', { class: 'set-row' }, key, testBtn)), st);
+
+  // --- models ---
+  main.append(sectionTitle(tr('Models', 'Модели'), tr(`${api0.models.length} models — pick any in the chat. It works if your API serves that model.`, `${api0.models.length} моделей — выбирай любую в чате. Работает, если твой API её поддерживает.`)));
+  const addIn = h('input', { class: 'input', placeholder: tr('Add a model ID…', 'Добавить ID модели…'), spellcheck: 'false' });
+  const add = async () => { const v = addIn.value.trim(); if (!v) return; try { applyResult(await api.invoke('api:add-model', v)); rerender(); } catch (e) { toast(e.message, 'error'); } };
+  addIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+  const fetchBtn = btn(tr('Load from API', 'Загрузить из API'), { onclick: async () => {
+    fetchBtn.disabled = true;
+    try { const r = await api.invoke('api:fetch-models'); applyResult(r.settings); toast(tr(`API reports ${r.added} models`, `API сообщил ${r.added} моделей`), 'ok', 2000); rerender(); }
+    catch (e) { toast(e.message, 'error', 6000); fetchBtn.disabled = false; }
+  } });
+  main.append(h('div', { class: 'set-row' }, addIn, btn(tr('Add', 'Добавить'), { onclick: add }), fetchBtn));
+  const list = h('div', { class: 'model-list' });
+  const def = S().defaultModel || {};
+  for (const m of api0.models) {
+    list.append(h('div', { class: `model-row ${def.modelId === m.id ? 'on' : ''}` },
+      modelIcon(m, 18),
+      h('span', { class: 'model-name' }, m.name && m.name !== m.id ? m.name : m.id),
+      h('span', { class: 'model-id mono' }, m.name && m.name !== m.id ? m.id : ''),
+      h('span', { class: 'grow' }),
+      def.modelId === m.id ? h('span', { class: 'set-tag' }, tr('default', 'по умолчанию')) : h('button', { class: 'link-btn', onclick: async () => { await save({ defaultModel: { providerId: 'api', modelId: m.id } }); state.modelRef = { providerId: 'api', modelId: m.id }; rerender(); } }, tr('Make default', 'Сделать основной')),
+      m.custom ? iconBtn('x', tr('Remove', 'Убрать'), async () => { applyResult(await api.invoke('api:remove-model', m.id)); rerender(); }, 'sm') : null));
+  }
+  main.append(list);
+
+  // --- system prompt ---
+  main.append(sectionTitle(tr('System prompt', 'Системный промпт'), tr('The whole instruction the agent gets. {{workspace}}, {{rules}} (AGENTS.md, .cursorrules…), {{os}} and {{date}} are filled in automatically.', 'Вся инструкция, которую получает агент. {{workspace}}, {{rules}} (AGENTS.md, .cursorrules…), {{os}} и {{date}} подставляются сами.')));
+  const DEF = state.info.defaultPrompts.agent;
+  const ta = h('textarea', { class: 'textarea sp-ta', spellcheck: 'false', rows: 14 });
+  ta.value = typeof S().systemPrompt === 'string' ? S().systemPrompt : DEF;
+  const spSt = h('span', { class: 'set-status inline' });
+  let t0;
+  ta.addEventListener('input', () => { clearTimeout(t0); spSt.textContent = '…'; t0 = setTimeout(async () => { await save({ systemPrompt: ta.value }); spSt.textContent = tr('Saved', 'Сохранено'); }, 500); });
+  main.append(ta, h('div', { class: 'set-row end' }, spSt, h('button', { class: 'link-btn', onclick: async () => { ta.value = DEF; await save({ systemPrompt: null }); spSt.textContent = tr('Reset to default', 'Сброшено'); } }, tr('Reset to default', 'Сбросить по умолчанию'))));
+
+  // --- basics ---
+  main.append(sectionTitle(tr('General', 'Основное')));
+  main.append(h('div', { class: 'set-grid' },
+    h('label', null, tr('Language', 'Язык')), seg([{ value: 'auto', label: 'Auto' }, { value: 'en', label: 'EN' }, { value: 'ru', label: 'RU' }], S().language || 'auto', async (v) => { await save({ language: v }); rerender(); }),
+    h('label', null, tr('Theme', 'Тема')), seg([{ value: 'dark', label: tr('Dark', 'Тёмная') }, { value: 'light', label: tr('Light', 'Светлая') }], S().theme === 'light' ? 'light' : 'dark', (v) => save({ theme: v })),
+    h('label', null, tr('Version', 'Версия')), h('div', { class: 'set-row' }, h('span', { class: 'mono' }, state.info.version), btn(tr('Check for updates', 'Проверить обновления'), { onclick: () => emit('cmd', 'check-update') }))));
+  main.append(h('div', { class: 'set-links' },
+    h('button', { class: 'set-link', onclick: () => open.go('account') }, icon('user'), tr('Account', 'Аккаунт'), icon('chevron')),
+    h('button', { class: 'set-link', onclick: () => open.go('plugins') }, icon('puzzle'), tr('Plugins & MCP', 'Плагины и MCP'), icon('chevron'))));
+}
+
 const RENDER = {
+  home: homePage,
   account(main, rerender) {
     const u = state.user || {};
     head(main, tr('Account', 'Аккаунт'), tr('Your local Enide account: it locks the app with a password on this computer. No e-mail — the code word resets a forgotten password.', 'Твой локальный аккаунт Enide: защищает вход в приложение паролем на этом компьютере. Без почты — забытый пароль сбрасывается кодовым словом.'));
@@ -526,7 +610,7 @@ const RENDER = {
 
   about(main) {
     head(main, 'Enide');
-    main.append(h('div', { class: 'hero-logo', style: { fontSize: '96px', marginBottom: '10px' } }, 'en', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'));
+    main.append(h('div', { class: 'hero-logo', style: { fontSize: '96px', marginBottom: '10px' } }, 'enide'));
     main.append(h('p', { class: 'lead' }, `${tr('Version', 'Версия')} ${state.info.version} · ${state.info.platform}/${state.info.arch}`),
       h('p', { class: 'lead' }, tr('Code openly. Any model, nothing hidden.', 'Код открыто. Любая модель, ничего скрытого.')));
     const up = S().updates || {};

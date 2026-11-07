@@ -18,7 +18,7 @@ export class PluginsPane {
   build() {
     clear(this.host);
     this.body = h('div', { class: 'pane-body' });
-    this.host.append(h('div', { class: 'pane-head' }, h('div', { class: 'pane-title' }, '/', h('b', null, t('plugins'))),
+    this.host.append(h('div', { class: 'pane-head' }, h('div', { class: 'pane-title' }, h('b', null, t('plugins'))),
       iconBtn('refresh', t('refresh'), () => this.refresh(), 'sm'), iconBtn('settings', t('settings'), () => this.openSettings('plugins'), 'sm')), this.body);
   }
   async refresh() {

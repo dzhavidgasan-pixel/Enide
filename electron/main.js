@@ -361,6 +361,58 @@ async function migrateToCustomModels() {
   settings.set({ modelsV2: true });
 }
 
+// v1.2: one API (endpoint + key) and one shared model list — the Cursor families plus any
+// model ID the user adds or the API reports. Whether a model answers depends on the API.
+const { MODELS: BUILTIN_MODELS } = require('./models');
+const { detectProtocol, authFor } = require('./agent/providers');
+function apiBase(p = {}) {
+  const baseUrl = p.baseUrl || '';
+  const protocol = p.protocol || detectProtocol(baseUrl);
+  return { id: 'api', preset: 'custom', name: 'API', baseUrl, protocol, authStyle: p.authStyle || authFor(protocol, baseUrl), headers: p.headers || {}, query: '',
+    echoReasoning: true, streamUsage: true, promptCaching: p.promptCaching != null ? p.promptCaching : protocol === 'anthropic' && /api\.anthropic\.com/.test(baseUrl),
+    maxTokensField: p.maxTokensField || 'max_tokens', defaultReasoning: null, enabled: true };
+}
+function buildModels(base, extras) {
+  const seen = new Set();
+  const out = [];
+  for (const b of BUILTIN_MODELS) { seen.add(b.id); out.push(normalizeModel({ id: b.id, name: b.name, contextWindow: b.contextWindow, maxOutput: b.maxOutput, vision: b.vision, vendor: b.vendor }, base)); }
+  for (const m of extras || []) if (m && m.id && !seen.has(m.id)) { seen.add(m.id); out.push(normalizeModel({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxOutput: m.maxOutput, vision: m.vision, custom: true, fetched: !!m.fetched }, base)); }
+  return out;
+}
+function apiProvider() { return (settings.get().providers || []).find((x) => x.id === 'api'); }
+function saveApi(patch = {}, extras) {
+  const cur = apiProvider() || {};
+  const base = apiBase({ ...cur, ...patch, ...(patch.baseUrl !== undefined && patch.protocol === undefined ? { protocol: detectProtocol(patch.baseUrl) } : {}), ...(patch.baseUrl !== undefined || patch.protocol !== undefined ? { authStyle: patch.authStyle } : {}) });
+  const keepExtras = extras || (cur.models || []).filter((m) => m.custom);
+  const api = { ...base, models: buildModels(base, keepExtras) };
+  settings.replace('providers', [api]);
+  const def = settings.get().defaultModel;
+  if (!def || def.providerId !== 'api' || !api.models.some((m) => m.id === def.modelId)) settings.replace('defaultModel', { providerId: 'api', modelId: (def && api.models.some((m) => m.id === def.modelId) && def.modelId) || 'claude-sonnet-5-5' });
+  return api;
+}
+// From 1.0/1.1 (several providers) to the single API, keeping the endpoint + key in use.
+async function migrateToSingleApi() {
+  const s = settings.get();
+  if (s.apiV3) { saveApi(); return; }
+  const list = s.providers || [];
+  const def = s.defaultModel || {};
+  const main = list.find((p) => p.id === def.providerId) || list.find((p) => p.id !== 'api' && secrets.has(p.id)) || list[0];
+  const extras = [];
+  if (main) {
+    for (const p of list) if (normUrl(p.baseUrl) === normUrl(main.baseUrl)) for (const m of p.models || []) if (!BUILTIN_MODELS.some((b) => b.id === m.id)) extras.push({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxOutput: m.maxOutput, vision: m.vision });
+    const k = keyFor(main.id);
+    if (k && main.id !== 'api') await secrets.set('api', k);
+  }
+  const defModel = def.modelId;
+  saveApi(main ? { baseUrl: main.baseUrl, protocol: main.protocol, authStyle: main.authStyle, headers: main.headers } : {}, extras);
+  if (defModel) settings.replace('defaultModel', { providerId: 'api', modelId: defModel });
+  saveApi();
+  // the one system prompt: carry over 1.1's global rules so nothing applies unseen
+  const g = s.rules && s.rules.global && s.rules.global.trim();
+  if (g && s.systemPrompt == null) { settings.set({ systemPrompt: `${DEFAULT_PROMPTS.agent.trim()}\n\n${g}` }); settings.set({ rules: { ...s.rules, global: '' } }); }
+  settings.set({ apiV3: true, modelsV2: true, starfield: false, theme: settings.get().theme === 'light' ? 'light' : 'dark' });
+}
+
 // Channels that work before sign-in (the sign-in screen itself needs theme + language).
 const OPEN_CHANNELS = new Set(['app:info', 'settings:get', 'app:open-external', 'update:check', 'update:install']);
 function h(channel, fn) {
@@ -460,6 +512,23 @@ function registerIpc() {
     return listModels({ provider: p, apiKey: keyFor(p.id), fetchImpl });
   });
   h('providers:custom', async (f) => customModel(f || {}));
+  h('api:set', async (patch) => { saveApi(patch || {}); return publicSettings(); });
+  h('api:add-model', async (id) => {
+    const v = String(id || '').trim();
+    if (!v) throw new Error('Model ID is empty');
+    const cur = apiProvider() || {};
+    saveApi({}, [...(cur.models || []).filter((m) => m.custom), { id: v }]);
+    return publicSettings();
+  });
+  h('api:remove-model', async (id) => { const cur = apiProvider() || {}; saveApi({}, (cur.models || []).filter((m) => m.custom && m.id !== id)); return publicSettings(); });
+  h('api:fetch-models', async () => {
+    const cur = apiProvider();
+    if (!cur || !cur.baseUrl) throw new Error('Enter the API endpoint first');
+    const got = await listModels({ provider: cur, apiKey: keyFor('api'), fetchImpl });
+    const extras = [...(cur.models || []).filter((m) => m.custom), ...got.map((m) => ({ id: m.id, contextWindow: m.contextWindow, fetched: true }))];
+    saveApi({}, extras);
+    return { added: got.length, settings: publicSettings() };
+  });
   h('providers:normalize', async (m, p) => normalizeModel(m || {}, p || {}));
   h('icons:get', async (vendor) => vendorIcons.get(String(vendor || '')));
   h('icons:clear', async () => { vendorIcons.clear(); return true; });
@@ -1065,6 +1134,7 @@ app.whenReady().then(async () => {
   secrets = new SecretStore(USER, safeStorage);
   auth = new AuthStore({ dir: USER, safeStorage });
   await migrateToCustomModels();
+  await migrateToSingleApi();
   const devIcon = path.join(APP_ROOT, 'build', 'icon.png');
   if (process.platform === 'darwin' && app.dock && !app.isPackaged && fs.existsSync(devIcon)) { try { app.dock.setIcon(devIcon); } catch {} }
   nativeTheme.themeSource = settings.get().theme === 'light' ? 'light' : settings.get().theme === 'system' ? 'system' : 'dark';

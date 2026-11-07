@@ -29,7 +29,7 @@ export class SearchPane {
       h('div', { class: 'search-input' }, this.q, h('div', { class: 'opts' }, optBtn('caseSensitive', 'Aa', 'Match case'), optBtn('wholeWord', 'ab', 'Whole word'), optBtn('regex', '.*', 'Regular expression'))),
       h('div', { class: 'row' }, this.rep, btn('', { cls: 'sm', icon: 'check', title: t('replaceAll'), onclick: () => this.replaceAll() })),
       this.inc, this.exc);
-    this.host.append(h('div', { class: 'pane-head' }, h('div', { class: 'pane-title' }, '/', h('b', null, t('search')))), form, this.summary, this.results);
+    this.host.append(h('div', { class: 'pane-head' }, h('div', { class: 'pane-title' }, h('b', null, t('search')))), form, this.summary, this.results);
     let timer;
     const deb = () => { clearTimeout(timer); timer = setTimeout(() => this.run(), 250); };
     this.q.addEventListener('input', deb);

@@ -23,7 +23,7 @@ export class ChatsPane {
 
   build() {
     clear(this.host);
-    this.head = h('div', { class: 'pane-head' }, h('div', { class: 'pane-title' }, '/', h('b', null, tr('Chats', 'Чаты'))),
+    this.head = h('div', { class: 'pane-head' }, h('div', { class: 'pane-title' }, h('b', null, tr('Chats', 'Чаты'))),
       iconBtn('search', tr('Search in all chats', 'Поиск по всем чатам'), () => this.tabs.active.searchChats(), 'sm'),
       iconBtn('plus', `${tr('New chat tab', 'Новая вкладка')} (⌘T)`, () => { this.tabs.newTab(); emit('chats-changed'); }, 'sm'));
     this.newBtn = btn(tr('New chat', 'Новый чат'), { cls: 'primary new-chat-btn', icon: 'newChat', onclick: () => { this.tabs.active.newChat(); emit('chats-changed'); } });

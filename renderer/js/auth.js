@@ -63,13 +63,13 @@ export async function authGate() {
     const body = h('div', { class: 'auth-body' });
     root.append(
       h('div', { class: 'auth-brand' },
-        h('div', { class: 'hero-logo auth-logo', 'aria-label': 'Enide' }, 'en', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'),
+        h('div', { class: 'hero-logo auth-logo', 'aria-label': 'Enide' }, 'enide'),
         h('div', { class: 'auth-tag' }, tr('Code openly.', 'Код открыто.'))),
       card);
     card.append(tabs, body);
     app.append(root);
     let stars = null;
-    requestAnimationFrame(() => { if (!state.settings || state.settings.starfield !== false) stars = starfield(root, { light: document.documentElement.dataset.theme === 'light' }); });
+    requestAnimationFrame(() => { if (state.settings && state.settings.starfield === true) stars = starfield(root, { light: document.documentElement.dataset.theme === 'light' }); });
 
     const done = (user) => {
       root.classList.add('leaving');

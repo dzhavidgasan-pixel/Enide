@@ -45,7 +45,7 @@ export class Explorer {
     this.cache.clear();
     this.expanded = new Set(root ? [root] : []);
     clear(this.title);
-    this.title.append('/', h('b', null, root ? basename(root) : t('explorer')));
+    this.title.append(h('b', null, root ? basename(root) : t('explorer')));
     this.render();
   }
 

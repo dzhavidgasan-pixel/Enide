@@ -35,6 +35,7 @@ function applySettings(r) {
   if (!state.modelRef || !allModels().some((m) => m.ref.providerId === state.modelRef.providerId && m.ref.modelId === state.modelRef.modelId)) state.modelRef = s.defaultModel || null;
 }
 
+on('apply-settings', (r) => { if (r) { applySettings(r); emit('settings'); } });
 on('save-settings', async (patch, cb) => {
   try {
     const r = await api.invoke('settings:set', patch);
@@ -72,7 +73,7 @@ function buildShell() {
   ui.agentPill = btn(t('agent'), { cls: 'primary agent-pill', icon: 'terminal', onclick: () => { if (!L().agent) runCmd('toggle-agent'); ui.chat.focus(); } });
   document.body.classList.add('plat-' + (api.isMock ? 'mock' : api.platform));
   const title = h('div', { class: `titlebar ${api.platform !== 'darwin' || api.isMock ? 'no-traffic' : ''}` },
-    h('div', { class: 'wordmark' }, 'En', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'),
+    h('div', { class: 'wordmark' }, 'Enide'),
     h('div', { class: 'spacer' }), ui.cc,
     ui.btnSidebar, ui.btnPanel, ui.avatarBtn = accountButton());
 
@@ -224,11 +225,10 @@ function refreshEmpty() {
 function emptyEditor() {
   const rows = [[tr('Go to file', 'Перейти к файлу'), '⌘P'], [tr('Command palette', 'Палитра команд'), '⌘⇧P'], [tr('Ask the agent', 'Спросить агента'), '⌘L'], [tr('Inline edit', 'Правка в коде'), '⌘K'], [tr('Terminal', 'Терминал'), '⌘J'], [tr('Find in files', 'Поиск по файлам'), '⌘⇧F']];
   const el = h('div', { class: 'welcome', style: { justifyContent: 'center', paddingTop: 0 } },
-    h('div', { class: 'hero-logo', style: { fontSize: '120px', opacity: .9 } }, 'en', h('span', { class: 'ig' }, 'ı', h('span', { class: 'orb' })), 'de'),
-    h('div', { class: 'hero-tag', style: { marginBottom: '28px' } }, basename(state.root)),
+    h('div', { class: 'hero-tag', style: { marginBottom: '18px' } }, basename(state.root)),
     h('table', { class: 'kbd-table', style: { width: '320px' } }, ...rows.map(([a, k]) => h('tr', null, h('td', null, a), h('td', null, h('kbd', null, k))))));
   let stars = null;
-  requestAnimationFrame(() => { if (state.settings.starfield !== false) stars = starfield(el, { density: 0.00006, light: document.documentElement.dataset.theme === 'light' }); });
+
   el.destroy = () => stars && stars.destroy();
   return el;
 }

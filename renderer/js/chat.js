@@ -282,16 +282,20 @@ export class ChatPanel {
   modelMenu(anchor) {
     const items = [];
     const cur = currentModel();
+    const vendors = state.info.vendors || {};
+    let last;
     for (const m of allModels()) {
-      items.push({ lead: () => modelIcon(m.model, 18), label: m.model.name || m.model.id, sub: (m.provider.baseUrl || '').replace(/^https?:\/\//, '').split('/')[0], keywords: m.provider.baseUrl + ' ' + m.model.id, on: cur && cur.ref.providerId === m.ref.providerId && cur.ref.modelId === m.ref.modelId, onclick: () => {
+      const v = m.model.custom ? 'custom' : m.model.vendor || '';
+      if (v !== last) { items.push({ header: v === 'custom' ? tr('Your models', 'Свои модели') : (vendors[v] || {}).name || v }); last = v; }
+      items.push({ lead: () => modelIcon(m.model, 18), label: m.model.name || m.model.id, sub: m.model.name && m.model.name !== m.model.id ? m.model.id : '', keywords: m.model.id + ' ' + v, on: cur && cur.ref.providerId === m.ref.providerId && cur.ref.modelId === m.ref.modelId, onclick: () => {
         state.modelRef = m.ref;
         emit('save-settings', { defaultModel: m.ref });
         this.renderBar();
         if (!this.chatId) this.renderEmpty();
       } });
     }
-    items.push({ sep: true }, { label: tr('Add model…', 'Добавить модель…'), icon: 'plus', onclick: () => this.d.openSettings('providers') });
-    popMenu(anchor, items, { search: tr('Search models', 'Поиск моделей'), above: true, checks: true, minWidth: 300 });
+    items.push({ sep: true }, { label: tr('API & models…', 'API и модели…'), icon: 'settings', onclick: () => this.d.openSettings() });
+    popMenu(anchor, items, { search: tr('Search models', 'Поиск моделей'), above: true, checks: true, minWidth: 320, maxHeight: 460 });
   }
 
   reasoningMenu(anchor) {
@@ -499,12 +503,10 @@ export class ChatPanel {
     if (this.stars) { this.stars.destroy(); this.stars = null; }
     clear(this.msgs);
     const empty = h('div', { class: 'chat-empty' },
-      h('div', { class: 'mini-orb' }),
       h('h2', { class: 'display' }, t('chatEmptyTitle')),
       h('p', null, t('chatEmptySub')),
       this.connectionPill());
     this.msgs.append(empty);
-    if (state.settings && state.settings.starfield !== false) this.stars = starfield(empty, { density: 0.00012, light: document.documentElement.dataset.theme === 'light' });
   }
 
   // Which model answers, whether a key is set, and a one-click real connection test.

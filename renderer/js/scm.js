@@ -18,7 +18,7 @@ export class ScmPane {
 
   build() {
     clear(this.host);
-    this.title = h('div', { class: 'pane-title' }, '/', h('b', null, t('sourceControl')));
+    this.title = h('div', { class: 'pane-title' }, h('b', null, t('sourceControl')));
     this.head = h('div', { class: 'pane-head' }, this.title,
       iconBtn('refresh', t('refresh'), () => this.refresh(), 'sm'),
       iconBtn('more', 'More', (e) => this.more(e.currentTarget), 'sm'));

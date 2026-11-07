@@ -167,9 +167,22 @@ async function loadMemory(root, settings, userDir) {
 
 // Build the system prompt for a mode. Returns { text, rules, memory, template } — the
 // parts are rendered in the Context Preview so you can see where every line came from.
+const MODE_NOTES = {
+  ask: '\n\nMode: Ask — read and explain; do not edit files or run commands that change anything.',
+  plan: '\n\nMode: Plan — explore read-only, then write a clear step-by-step plan; do not edit files.',
+  debug: '\n\nMode: Debug — reproduce, form hypotheses, add logs, find the root cause, then fix.',
+};
+
 async function buildSystemPrompt({ mode, settings, root, extraRoots, userDir, vars: extraVars }) {
   const prompts = { ...DEFAULT_PROMPTS, ...((settings && settings.prompts) || {}) };
-  const template = prompts[mode] != null ? prompts[mode] : prompts.agent;
+  // One system prompt for the chat modes (Settings → System prompt); Ask / Plan only add a short,
+  // visible line about what they may do. Internal jobs (subagents, compaction…) keep their own.
+  const CHAT = { agent: '', ask: MODE_NOTES.ask, plan: MODE_NOTES.plan, debug: MODE_NOTES.debug };
+  let template;
+  if (mode in CHAT) {
+    const sp = settings && typeof settings.systemPrompt === 'string' ? settings.systemPrompt : DEFAULT_PROMPTS.agent;
+    template = sp.trim() ? sp + CHAT[mode] : '';
+  } else template = prompts[mode] != null ? prompts[mode] : prompts.agent;
   const rules = [];
   const g = settings && settings.rules && settings.rules.global;
   if (g && g.trim()) rules.push({ source: 'global', text: g.trim() });

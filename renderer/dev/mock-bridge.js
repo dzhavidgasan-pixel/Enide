@@ -1,6 +1,6 @@
 // Mock of the Electron bridge so the UI can be previewed and tested in a plain browser.
 // Not used inside the app.
-const VENDORS = { anthropic: { name: 'Anthropic', domain: 'anthropic.com' }, openai: { name: 'OpenAI', domain: 'openai.com' }, moonshot: { name: 'Moonshot · Kimi', domain: 'kimi.com' }, zai: { name: 'Z.ai · GLM', domain: 'z.ai' }, deepseek: { name: 'DeepSeek', domain: 'deepseek.com' } };
+const VENDORS = { anthropic: { name: 'Anthropic', domain: 'anthropic.com' }, openai: { name: 'OpenAI', domain: 'openai.com' }, google: { name: 'Google', domain: 'gemini.google.com' }, xai: { name: 'xAI · Grok', domain: 'x.ai' }, moonshot: { name: 'Moonshot · Kimi', domain: 'kimi.com' }, zai: { name: 'Z.ai · GLM', domain: 'z.ai' }, deepseek: { name: 'DeepSeek', domain: 'deepseek.com' } };
 const custom = (id, modelId, name, baseUrl, protocol, extra = {}) => ({ id, preset: 'custom', name, protocol, baseUrl, authStyle: protocol === 'anthropic' ? 'both' : 'bearer', headers: {}, enabled: true, streamUsage: true, maxTokensField: 'max_tokens',
   models: [{ id: modelId, name, contextWindow: 200000, maxOutput: 32000, vision: false, tools: true, reasoningStyle: protocol === 'anthropic' ? 'anthropic-budget' : 'thinking-object', enabled: true, custom: true, extraBody: {}, ...extra }] });
 const ROOT = '/Users/you/Projects/light-app';
@@ -20,15 +20,14 @@ const FILES = {
   'index.html': '<!doctype html>\n<div id="app"></div>\n<script type="module" src="/src/main.ts"></script>\n',
 };
 
-const providers = [
-  custom('zai', 'glm-5.2', 'GLM-5.2', 'https://api.z.ai/api/anthropic', 'anthropic', { contextWindow: 1000000 }),
-  custom('kimi', 'kimi-k3', 'Kimi K3', 'https://api.moonshot.ai/v1', 'openai', { contextWindow: 1048576, vision: true, reasoningStyle: 'kimi-effort' }),
-  custom('ds', 'deepseek-v4-pro', '', 'https://api.deepseek.com', 'openai', { reasoningStyle: 'none' }),
-];
+const pub = () => ({ settings, keyHints: { api: 'sk-a…9f2c' } });
+const BUILTIN = [['anthropic','claude-opus-5-5','Claude Opus 5.5'],['anthropic','claude-sonnet-5-5','Claude Sonnet 5.5'],['anthropic','claude-haiku-5-5','Claude Haiku 5.5'],['anthropic','claude-fable-5-1','Claude Fable 5.1'],['openai','gpt-6.1-sol','GPT-6.1 Sol'],['openai','gpt-6-luna','GPT-6 Luna'],['openai','gpt-5.6-sol','GPT-5.6 Sol'],['openai','gpt-5.5','GPT-5.5'],['openai','gpt-5.3-codex','GPT-5.3 Codex'],['google','gemini-4-argon','Gemini 4 Argon'],['google','gemini-3.8-flash','Gemini 3.8 Flash'],['google','gemini-3.1-pro-preview','Gemini 3.1 Pro'],['xai','grok-4.7','Grok 4.7'],['moonshot','kimi-k3.1-pro','Kimi K3.1 Pro'],['moonshot','kimi-k3','Kimi K3'],['moonshot','kimi-k2.6','Kimi K2.6'],['zai','glm-5.3','GLM-5.3'],['zai','glm-5.2','GLM-5.2'],['zai','glm-5.3-flash','GLM-5.3 Flash'],['deepseek','deepseek-v4-pro','DeepSeek V4 Pro'],['deepseek','deepseek-flash','DeepSeek V4.1 Flash']];
+const mkModel = ([vendor, id, name], extra = {}) => ({ id, name, vendor, contextWindow: 1000000, maxOutput: 64000, vision: false, tools: true, reasoningStyle: 'anthropic-budget', enabled: true, extraBody: {}, ...extra });
+const providers = [{ ...custom('api', 'glm-5.2', 'GLM-5.2', 'https://api.z.ai/api/anthropic', 'anthropic'), name: 'API', models: [...BUILTIN.map((b) => mkModel(b)), mkModel(['zai', 'glm-5-code', ''], { name: '', custom: true })] }];
 
 let settings = {
   version: 1, language: (typeof location !== 'undefined' && /lang=en/.test(location.search)) ? 'en' : 'ru', theme: /theme=light/.test(location.search) ? 'light' : 'dark', starfield: true, providers,
-  defaultModel: { providerId: 'zai', modelId: 'glm-5.2' }, reasoning: { enabled: true, effort: 'high' },
+  defaultModel: { providerId: 'api', modelId: 'glm-5.2' }, reasoning: { enabled: true, effort: 'high' },
   autocomplete: { enabled: true, debounceMs: 350 }, inlineEdit: { model: null }, commitModel: null,
   agent: { maxSteps: 80, checkpoints: true, autoOpenEdits: true, computerUse: false, policy: { write: 'auto', writeOutside: 'ask', readOutside: 'auto', command: 'ask', allowList: ['ls', 'git status', 'npm test'], denyList: ['rm -rf /', 'sudo '], allowChained: false, network: 'auto', computer: 'ask', mcp: 'ask', plugins: 'ask' }, tools: {} },
   prompts: {}, rules: { global: '', useProjectFiles: true, disabledFiles: [] },
@@ -158,6 +157,10 @@ const HANDLERS = {
   'auth:update': ({ nick }) => (mockUser = { ...mockUser, nick }),
   'auth:change-password': () => true,
   'auth:change-word': () => true,
+  'api:set': (patch) => { Object.assign(providers[0], patch); return pub(); },
+  'api:add-model': (id) => { providers[0].models.push(mkModel(['', id, ''], { name: '', custom: true })); return pub(); },
+  'api:remove-model': (id) => { providers[0].models = providers[0].models.filter((m) => m.id !== id); return pub(); },
+  'api:fetch-models': async () => { await sleep(400); return { added: 42, settings: pub() }; },
   'providers:custom': ({ baseUrl = '', protocol } = {}) => custom('m' + Date.now().toString(36), '', '', baseUrl, protocol || (/anthropic/.test(baseUrl) ? 'anthropic' : 'openai')),
   'providers:normalize': (m) => ({ contextWindow: 128000, maxOutput: 8192, vision: false, tools: true, reasoningStyle: 'none', enabled: true, extraBody: {}, ...m }),
   'update:check': () => (/update=1/.test(location.search) ? { configured: true, available: true, required: true, current: '1.0.0', latest: 'v1.1.0', page: '#', asset: { name: 'Enide-mac-arm64.zip', size: 125e6, url: '#' }, notes: '- Свои модели: ID, адрес и ключ\n- Проще интерфейс и крупнее кнопки\n- Обновление прямо из приложения' } : { configured: true, available: false, current: '1.1.0' }),
@@ -168,13 +171,13 @@ const HANDLERS = {
     vendors: VENDORS, presets: [{ preset: 'moonshot', name: 'Moonshot · Kimi', protocol: 'openai' }, { preset: 'anthropic', name: 'Anthropic', protocol: 'anthropic' }, { preset: 'openai', name: 'OpenAI', protocol: 'openai' }, { preset: 'openai-responses', name: 'OpenAI · Responses API', protocol: 'openai-responses' }, { preset: 'gemini', name: 'Google Gemini', protocol: 'gemini' }, { preset: 'openrouter', name: 'OpenRouter', protocol: 'openai' }, { preset: 'zai-anthropic', name: 'Z.ai GLM (Anthropic API)', protocol: 'anthropic' }, { preset: 'deepseek', name: 'DeepSeek', protocol: 'openai' }, { preset: 'ollama', name: 'Ollama (local)', protocol: 'openai' }],
     defaultPrompts: DEFAULT_PROMPTS, defaultPolicy: settings.agent.policy, toolDefs: TOOL_DEFS, pendingOpen: [],
     mcpCatalog: [{ key: 'playwright', name: 'Playwright', description: 'Drive a real browser', type: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'] }, { key: 'context7', name: 'Context7', description: 'Up-to-date library docs', type: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'] }, { key: 'github', name: 'GitHub', description: 'Issues, PRs, code search', type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: {} }] }),
-  'settings:get': () => ({ settings, keyHints: { zai: 'sk-a…9f2c' } }),
+  'settings:get': () => ({ settings, keyHints: { api: 'sk-a…9f2c' } }),
   'settings:set': (patch) => {
     const merge = (a, b) => { if (!b || typeof b !== 'object' || Array.isArray(b)) return b; const o = { ...(a || {}) }; for (const [k, v] of Object.entries(b)) o[k] = v && typeof v === 'object' && !Array.isArray(v) && o[k] && typeof o[k] === 'object' ? merge(o[k], v) : v; return o; };
     if (patch.__replace) { for (const k of patch.__replace) settings[k] = patch[k]; }
     const p = { ...patch }; delete p.__replace;
     settings = merge(settings, p);
-    return { settings, keyHints: { zai: 'sk-a…9f2c' } };
+    return { settings, keyHints: { api: 'sk-a…9f2c' } };
   },
   'secrets:set': () => 'sk-a…9f2c',
   'ws:open': (r) => ({ root: r, name: r.split('/').pop() }),

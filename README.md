@@ -42,23 +42,36 @@
 ## Начало работы
 
 1. Создай аккаунт: ник, логин, пароль и кодовое слово (без почты).
-2. **Настройки → Модели → «Добавить модель»**: ID модели, адрес API, ключ. Нажми **«Проверить»**.
-3. Открой папку проекта и пиши агенту.
+2. **Настройки → API**: вставь адрес API и ключ, нажми **«Проверить»**.
+3. Выбери модель в списке под полем ввода — и работай.
 
-| ID модели | Адрес API |
+Все модели уже в списке — те же семейства, что в Cursor:
+
+| Семейство | Модели |
 |---|---|
-| `glm-5.2` | `https://api.z.ai/api/anthropic` |
-| `kimi-k3` | `https://api.moonshot.ai/v1` |
-| `deepseek-v4-pro` | `https://api.deepseek.com` |
-| `gpt-5.5` | `https://api.openai.com/v1` |
-| `claude-sonnet-5-5` | `https://api.anthropic.com` |
-| `llama3.3` | `http://localhost:11434/v1` (Ollama) |
+| Anthropic | Claude Opus 5.5 · Sonnet 5.5 · Haiku 5.5 · Fable 5.1 |
+| OpenAI | GPT-6.1 Sol · GPT-6 Luna · GPT-5.6 Sol · GPT-5.5 · GPT-5.3 Codex |
+| Google | Gemini 4 Argon · Gemini 3.8 Flash · Gemini 3.1 Pro |
+| xAI | Grok 4.7 |
+| Moonshot | Kimi K3.1 Pro · Kimi K3 · Kimi K2.6 |
+| Z.ai | GLM-5.3 · GLM-5.2 · GLM-5.3 Flash |
+| DeepSeek | DeepSeek V4 Pro · DeepSeek V4.1 Flash |
 
-Протокол (OpenAI-совместимый, Anthropic, Gemini) определяется по адресу. Несколько моделей с одного адреса используют один ключ: вставлять его заново не нужно.
+Запрос уходит на тот API, который ты вставил: будет ли работать модель, зависит от него. Нет нужной — **«Добавить ID модели»** или **«Загрузить из API»**. Протокол (Anthropic, OpenAI-совместимый, Gemini) определяется по адресу.
+
+| Адрес API | |
+|---|---|
+| `https://api.z.ai/api/anthropic` | Z.ai (GLM) |
+| `https://openrouter.ai/api/v1` | OpenRouter — все семейства сразу |
+| `https://api.anthropic.com` | Anthropic |
+| `https://api.openai.com/v1` | OpenAI |
+| `https://api.moonshot.ai/v1` | Moonshot (Kimi) |
+| `https://api.deepseek.com` | DeepSeek |
+| `http://localhost:11434/v1` | Ollama |
 
 <table>
-<tr><td width="50%"><img src="docs/screenshots/models.png" alt="Модели"></td><td width="50%"><img src="docs/screenshots/code.png" alt="Код и правка запроса"></td></tr>
-<tr><td><sub>Модели: только твои — ID, адрес, ключ</sub></td><td><sub>Код как в Cursor; отправленный запрос можно изменить</sub></td></tr>
+<tr><td width="50%"><img src="docs/screenshots/models.png" alt="Настройки"></td><td width="50%"><img src="docs/screenshots/code.png" alt="Выбор модели"></td></tr>
+<tr><td><sub>Настройки на одной странице: API, модели, системный промпт</sub></td><td><sub>Все модели в одном списке, по семействам</sub></td></tr>
 </table>
 
 ## Что умеет
@@ -69,7 +82,7 @@
 | **Доступ** | под полем ввода: **Полный доступ** · **Спрашивать каждый раз** · **Не спрашивать**. Команду можно изменить перед запуском |
 | **Изменения** | дифф каждой правки, откат хода и откат к любому сообщению |
 | **Контекст** | кольцо под полем ввода — точное число токенов от провайдера |
-| **Правила** | одно поле в настройках — добавляется к каждому запросу агента. `AGENTS.md` / `.cursorrules` в проекте тоже учитываются |
+| **Системный промпт** | одно поле в настройках — его видит модель, можно переписать целиком или сбросить. `AGENTS.md` / `.cursorrules` в проекте тоже учитываются |
 | **Вложения** | файлы, папки, архивы, картинки, скриншоты, голос |
 | **Чаты** | панель чатов, вкладки, чат на весь экран (⌘E) |
 | **Редактор** | Monaco (движок VS Code), терминал, git, поиск |

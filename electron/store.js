@@ -10,7 +10,7 @@ function defaults() {
     version: 1,
     language: 'auto',
     theme: 'dark',
-    starfield: true,
+    starfield: false,
     providers: [], // models the user adds: ID + endpoint + key
     iconOverrides: {}, // vendor -> data URL picked by the user
     defaultModel: null,

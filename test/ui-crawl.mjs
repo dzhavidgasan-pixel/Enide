@@ -26,12 +26,19 @@ for (const id of ids) {
   await wait(220);
   await esc();
 }
-// 2) every settings page
-const sections = await page.evaluate(() => { window.__enide.openSettings('account'); return [...document.querySelectorAll('.set-nav button')].length; });
-for (let i = 0; i < sections; i++) {
-  where = 'settings#' + i;
-  await page.evaluate((n) => document.querySelectorAll('.set-nav button')[n].click(), i);
-  await wait(250);
+// 2) settings: the one page, its actions, and the two sub-pages
+where = 'settings';
+await page.evaluate(() => window.__enide.openSettings()); await wait(300);
+const sections = await page.evaluate(() => document.querySelectorAll('.set-sec').length);
+where = 'settings:add-model';
+await page.fill('.set-main .set-row input:not([type=password])', 'my-model-1').catch(() => {});
+await page.evaluate(() => { const i = [...document.querySelectorAll('.set-main .set-row .input')].find((x) => /ID/.test(x.placeholder)); if (i) { i.value = 'my-model-1'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); } }); await wait(300);
+where = 'settings:fetch';
+await page.evaluate(() => [...document.querySelectorAll('.set-main .btn')].find((b) => /API$|from API/.test(b.textContent)).click()); await wait(700);
+for (const sub of ['account', 'plugins']) {
+  where = 'settings:' + sub;
+  await page.evaluate((n) => window.__enide.openSettings(n), sub); await wait(300);
+  await page.evaluate(() => document.querySelector('.set-back').click()); await wait(250);
 }
 await esc();
 // 3) chat: send → approval → edit command → allow; edit message; retry; chats pane
@@ -59,4 +66,4 @@ await page.click('.avatar-btn'); await wait(250); await esc();
 
 await browser.close();
 if (errors.length) { console.log(errors.join('\n')); console.log(`\n${errors.length} UI error(s)`); process.exit(1); }
-console.log(`UI crawl: ${ids.length} commands, ${sections} settings pages, chat flows — 0 errors`);
+console.log(`UI crawl: ${ids.length} commands, ${sections} settings sections, chat flows — 0 errors`);

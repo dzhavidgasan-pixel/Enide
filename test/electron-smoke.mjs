@@ -85,21 +85,33 @@ await test('account: gate, register, wrong password, recover with code word, ses
 await test('IPC handlers registered', () => {
   for (const ch of ['app:info', 'settings:get', 'settings:set', 'ws:open', 'agent:send', 'agent:preview', 'ai:inline', 'mcp:status', 'plugins:scaffold', 'requestlog:get', 'app:capture-screen', 'ai:transcribe', 'agent:turn-changes']) assert.ok(handlers.has(ch), ch);
 });
-await test('app:info + settings defaults: no built-in models; add one by ID + endpoint', async () => {
+await test('one API + the shared model list; protocol from the endpoint; own model IDs; one system prompt', async () => {
   const info = await call('app:info');
   assert.ok(info.defaultPrompts.agent.includes('You are Enide'));
   const s = await call('settings:get');
-  assert.equal(s.settings.providers.length, 0, 'fresh install has no models');
-  assert.equal(s.settings.defaultModel, null);
-  const m = await call('providers:custom', { modelId: 'glm-5.2', baseUrl: 'https://api.z.ai/api/anthropic' });
-  assert.equal(m.protocol, 'anthropic'); assert.equal(m.models[0].id, 'glm-5.2');
-  await call('settings:set', { providers: [{ ...m, id: 'zai' }], defaultModel: { providerId: 'zai', modelId: 'glm-5.2' } });
-  // a second model on the same endpoint uses the same key without pasting it again
-  await call('secrets:set', 'zai', 'sk-shared-123456');
-  await call('settings:set', { providers: [{ ...m, id: 'zai' }, { ...m, id: 'zai2', models: [{ ...m.models[0], id: 'glm-5.3' }] }] });
-  const s2 = await call('settings:get');
-  assert.match(s2.keyHints.zai2, /↺/);
-  await call('settings:set', { providers: [{ ...m, id: 'zai' }] });
+  assert.equal(s.settings.providers.length, 1);
+  const api = s.settings.providers[0];
+  assert.equal(api.id, 'api');
+  for (const id of ['claude-sonnet-5-5', 'gpt-5.5', 'gemini-4-argon', 'grok-4.7', 'kimi-k3', 'glm-5.2', 'deepseek-v4-pro']) assert.ok(api.models.some((m) => m.id === id), id);
+  assert.equal(s.settings.defaultModel.providerId, 'api');
+  let r = await call('api:set', { baseUrl: 'https://api.z.ai/api/anthropic' });
+  assert.equal(r.settings.providers[0].protocol, 'anthropic');
+  assert.equal(r.settings.providers[0].authStyle, 'both');
+  assert.equal(r.settings.providers[0].models.find((m) => m.id === 'glm-5.2').reasoningStyle, 'anthropic-budget');
+  r = await call('api:add-model', 'glm-5-code');
+  assert.ok(r.settings.providers[0].models.find((m) => m.id === 'glm-5-code').custom);
+  r = await call('api:remove-model', 'glm-5-code');
+  assert.ok(!r.settings.providers[0].models.some((m) => m.id === 'glm-5-code'));
+  r = await call('api:set', { baseUrl: 'https://api.moonshot.ai/v1' });
+  assert.equal(r.settings.providers[0].protocol, 'openai');
+  assert.equal(r.settings.providers[0].models.find((m) => m.id === 'kimi-k3').reasoningStyle, 'kimi-effort');
+  await call('settings:set', { systemPrompt: 'Be brief. {{workspace}}' });
+  await call('ws:open', ws);
+  const prev = await call('agent:preview', { mode: 'ask' });
+  assert.match(prev.system, /^Be brief\. /);
+  assert.match(prev.system, /Mode: Ask/);
+  await call('settings:set', { systemPrompt: null, defaultModel: { providerId: 'api', modelId: 'glm-5.2' } });
+  await call('api:set', { baseUrl: 'https://api.z.ai/api/anthropic' });
 });
 await test('protocol serves renderer, blocks other paths', async () => {
   const ok = await protocolHandler({ url: 'enide://app/renderer/index.html' });
@@ -133,7 +145,7 @@ await test('settings:set saves providers + secret, preview shows rules', async (
   const s = (await call('settings:get')).settings;
   const p = { ...s.providers[0], baseUrl: mock.url + '/anthropic' };
   await call('settings:set', { providers: [p], agent: { policy: { ...s.agent.policy, write: 'auto' } } });
-  const hint = await call('secrets:set', 'zai', 'sk-zai-0123456789abcdef');
+  const hint = await call('secrets:set', 'api', 'sk-zai-0123456789abcdef');
   assert.ok(hint.includes('…'));
   const prev = await call('agent:preview', { mode: 'agent' });
   assert.match(prev.system, /<rules source="AGENTS.md">/);
@@ -145,7 +157,7 @@ await test('agent:send streams events to the window and edits a file', async () 
     () => anthropicStream({ text: 'done' }),
   );
   sent.length = 0;
-  const runId = await call('agent:send', { text: 'bump x', mode: 'agent', modelRef: { providerId: 'zai', modelId: 'glm-5.2' }, reasoning: { enabled: true, effort: 'low' }, attachments: [{ type: 'file', path: path.join(ws, 'src/a.js'), content: 'export const x = 1;' }] });
+  const runId = await call('agent:send', { text: 'bump x', mode: 'agent', modelRef: { providerId: 'api', modelId: 'glm-5.2' }, reasoning: { enabled: true, effort: 'low' }, attachments: [{ type: 'file', path: path.join(ws, 'src/a.js'), content: 'export const x = 1;' }] });
   for (let i = 0; i < 100 && !sent.some((s) => s[0] === 'agent:event' && s[2].type === 'done'); i++) await new Promise((r) => setTimeout(r, 30));
   const evs = sent.filter((s) => s[0] === 'agent:event' && s[1] === runId).map((s) => s[2]);
   assert.equal(evs.find((e) => e.type === 'error'), undefined, (evs.find((e) => e.type === 'error') || {}).message);
@@ -222,7 +234,7 @@ await test('worktree chat: agent edits in its own checkout, apply brings changes
     () => anthropicStream({ text: 'done in worktree' }),
   );
   sent.length = 0;
-  const runId = await call('agent:send', { text: 'make wt.txt', mode: 'agent', worktree: true, modelRef: { providerId: 'zai', modelId: 'glm-5.2' } });
+  const runId = await call('agent:send', { text: 'make wt.txt', mode: 'agent', worktree: true, modelRef: { providerId: 'api', modelId: 'glm-5.2' } });
   for (let i = 0; i < 100 && !sent.some((x) => x[0] === 'agent:event' && x[1] === runId && x[2].type === 'done'); i++) await new Promise((r) => setTimeout(r, 30));
   const start = sent.find((x) => x[0] === 'agent:event' && x[1] === runId && x[2].type === 'run_start')[2];
   assert.equal(fs.existsSync(path.join(ws, 'wt.txt')), false, 'main checkout untouched');
@@ -256,7 +268,7 @@ await test('docs: crawl site, search, @Docs attachment resolves passages', async
   assert.equal(d.pages, 2);
   mock.scripts.anthropic.push((body) => { assert.match(JSON.stringify(body.messages), /widget\.paint/); assert.ok(body.tools.some((t) => t.name === 'docs_search')); return anthropicStream({ text: 'use paint' }); });
   sent.length = 0;
-  const runId = await call('agent:send', { text: 'how to change widget color', mode: 'ask', attachments: [{ type: 'docs', name: 'widgets' }], modelRef: { providerId: 'zai', modelId: 'glm-5.2' } });
+  const runId = await call('agent:send', { text: 'how to change widget color', mode: 'ask', attachments: [{ type: 'docs', name: 'widgets' }], modelRef: { providerId: 'api', modelId: 'glm-5.2' } });
   for (let i = 0; i < 100 && !sent.some((x) => x[0] === 'agent:event' && x[1] === runId && x[2].type === 'done'); i++) await new Promise((r) => setTimeout(r, 30));
   assert.ok(!sent.some((x) => x[0] === 'agent:event' && x[2].type === 'error'), JSON.stringify(sent.filter((x) => x[2] && x[2].type === 'error')));
 });
